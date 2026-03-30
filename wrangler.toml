@@ -1,0 +1,6 @@
+name = "shox-service-api"
+main = "worker/index.js"
+compatibility_date = "2024-01-01"
+
+# API key ni Cloudflare Dashboard > Workers > Settings > Variables da qo'shing
+# O'zgaruvchi nomi: ANTHROPIC_API_KEY
