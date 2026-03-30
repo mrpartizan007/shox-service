@@ -1813,7 +1813,7 @@ function ZapchastlarPage({ parts, setParts, partHistory, setPartHistory, setSale
             </tr>
           </thead>
           <tbody>
-            {filtered.map(p=>{
+            {pagedFiltered.map(p=>{
               const shown = !!revealedPrices[p.id];
               const modelOnly = p.model?.replace(p.brand+" ","") || p.model;
               return (
@@ -1872,6 +1872,15 @@ function ZapchastlarPage({ parts, setParts, partHistory, setPartHistory, setSale
             })}
           </tbody>
         </table>
+        {totalPages > 1 && (
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"12px",borderTop:"1px solid "+T.border}}>
+            <button onClick={()=>setZPage(0)} disabled={zPage===0} style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+T.border,background:T.surface,color:T.text,cursor:"pointer",opacity:zPage===0?0.4:1}}>«</button>
+            <button onClick={()=>setZPage(p=>Math.max(0,p-1))} disabled={zPage===0} style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+T.border,background:T.surface,color:T.text,cursor:"pointer",opacity:zPage===0?0.4:1}}>‹</button>
+            <span style={{color:T.muted,fontSize:12}}>{zPage+1} / {totalPages} ({filtered.length} ta)</span>
+            <button onClick={()=>setZPage(p=>Math.min(totalPages-1,p+1))} disabled={zPage>=totalPages-1} style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+T.border,background:T.surface,color:T.text,cursor:"pointer",opacity:zPage>=totalPages-1?0.4:1}}>›</button>
+            <button onClick={()=>setZPage(totalPages-1)} disabled={zPage>=totalPages-1} style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+T.border,background:T.surface,color:T.text,cursor:"pointer",opacity:zPage>=totalPages-1?0.4:1}}>»</button>
+          </div>
+        )}
         {filtered.length===0 && <div style={{ padding:32, textAlign:"center", color:T.muted, fontSize:13 }}>Zapchastlar topilmadi</div>}
       </Card>
 
@@ -2322,6 +2331,13 @@ function AksessuarlarPage({ accessories, setAccessories, setSales, accHistory, s
     });
     return list;
   },[accessories,search,filterCat,sortCol,sortDir]);
+
+  const PAGE_SIZE = 100;
+  const [zPage, setZPage] = useState(0);
+  // Search/filter o'zganda birinchi sahifaga qayt
+  React.useEffect(()=>setZPage(0),[search,filterType,filterBrand,sortBy]);
+  const pagedFiltered = filtered.slice(zPage*PAGE_SIZE, (zPage+1)*PAGE_SIZE);
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
 
   const togglePrice = id => setRevealedPrices(prev=>({...prev,[id]:!prev[id]}));
 
@@ -11705,7 +11721,16 @@ const NAV_INNER = [
 ];
 // ── ASOSIY APP KOMPONENT ──────────────────────────────────────────────────────
 export default function App() {
-  const [parts,       setParts]      = useState(() => { try { const v=localStorage.getItem("shox_parts");      return v?JSON.parse(v):INIT_PARTS.map(p=>({...p,id:uid()})); } catch{return [];} });
+  const [parts,       setParts]      = useState(() => { 
+    try { 
+      const v=localStorage.getItem("shox_parts");
+      if(v) return JSON.parse(v);
+      // Birinchi marta: INIT_PARTS ni localStorage ga saqlaymiz
+      const initData = INIT_PARTS.map(p=>({...p,id:uid()}));
+      try{ localStorage.setItem("shox_parts", JSON.stringify(initData)); }catch{}
+      return initData;
+    } catch{return [];} 
+  });
   const [repairs,     setRepairs]    = useState(() => { try { const v=localStorage.getItem("shox_repairs");    return v?JSON.parse(v):INIT_REPAIRS.map(p=>({...p,id:uid()})); } catch{return [];} });
   const [accessories, setAccessories]= useState(() => { try { const v=localStorage.getItem("shox_acc");        return v?JSON.parse(v):INIT_ACC.map(p=>({...p,id:uid()})); } catch{return [];} });
   const [sales,       setSales]      = useState(() => { try { const v=localStorage.getItem("shox_sales");      return v?JSON.parse(v):[]; } catch{return [];} });
