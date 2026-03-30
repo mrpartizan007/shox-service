@@ -11705,18 +11705,17 @@ const NAV_INNER = [
 ];
 // ── ASOSIY APP KOMPONENT ──────────────────────────────────────────────────────
 export default function App() {
-  const [parts,      setParts]      = useState(() => { try { const v=localStorage.getItem("shox_parts");      return v?JSON.parse(v):INIT_PARTS; } catch{return INIT_PARTS;} });
-  const [repairs,    setRepairs]    = useState(() => { try { const v=localStorage.getItem("shox_repairs");    return v?JSON.parse(v):INIT_REPAIRS; } catch{return INIT_REPAIRS;} });
-  const [accessories,setAccessories]= useState(() => { try { const v=localStorage.getItem("shox_acc");       return v?JSON.parse(v):INIT_ACC; } catch{return INIT_ACC;} });
-  const [sales,      setSales]      = useState(() => { try { const v=localStorage.getItem("shox_sales");      return v?JSON.parse(v):[]; } catch{return [];} });
-  const [losses,     setLosses]     = useState(() => { try { const v=localStorage.getItem("shox_losses");     return v?JSON.parse(v):[]; } catch{return [];} });
-  const [debts,      setDebts]      = useState(() => { try { const v=localStorage.getItem("shox_debts");      return v?JSON.parse(v):[]; } catch{return [];} });
-  const [incomes,    setIncomes]    = useState(() => { try { const v=localStorage.getItem("shox_incomes");    return v?JSON.parse(v):[]; } catch{return [];} });
-  const [partHistory,setPartHistory]= useState(() => { try { const v=localStorage.getItem("shox_partHistory");return v?JSON.parse(v):[]; } catch{return [];} });
-  const [accHistory, setAccHistory] = useState(() => { try { const v=localStorage.getItem("shox_accHistory"); return v?JSON.parse(v):[]; } catch{return [];} });
-  const [ustaRecords,setUstaRecords]= useState(() => { try { const v=localStorage.getItem("shox_ustaRecords");return v?JSON.parse(v):[]; } catch{return [];} });
+  const [parts,       setParts]      = useState(() => { try { const v=localStorage.getItem("shox_parts");      return v?JSON.parse(v):INIT_PARTS.map(p=>({...p,id:uid()})); } catch{return [];} });
+  const [repairs,     setRepairs]    = useState(() => { try { const v=localStorage.getItem("shox_repairs");    return v?JSON.parse(v):INIT_REPAIRS.map(p=>({...p,id:uid()})); } catch{return [];} });
+  const [accessories, setAccessories]= useState(() => { try { const v=localStorage.getItem("shox_acc");        return v?JSON.parse(v):INIT_ACC.map(p=>({...p,id:uid()})); } catch{return [];} });
+  const [sales,       setSales]      = useState(() => { try { const v=localStorage.getItem("shox_sales");      return v?JSON.parse(v):[]; } catch{return [];} });
+  const [losses,      setLosses]     = useState(() => { try { const v=localStorage.getItem("shox_losses");     return v?JSON.parse(v):[]; } catch{return [];} });
+  const [debts,       setDebts]      = useState(() => { try { const v=localStorage.getItem("shox_debts");      return v?JSON.parse(v):[]; } catch{return [];} });
+  const [incomes,     setIncomes]    = useState(() => { try { const v=localStorage.getItem("shox_incomes");    return v?JSON.parse(v):[]; } catch{return [];} });
+  const [partHistory, setPartHistory]= useState(() => { try { const v=localStorage.getItem("shox_partHistory");return v?JSON.parse(v):[]; } catch{return [];} });
+  const [accHistory,  setAccHistory] = useState(() => { try { const v=localStorage.getItem("shox_accHistory"); return v?JSON.parse(v):[]; } catch{return [];} });
+  const [ustaRecords, setUstaRecords]= useState(() => { try { const v=localStorage.getItem("shox_ustaRecords");return v?JSON.parse(v):[]; } catch{return [];} });
 
-  // localStorage sync
   useEffect(()=>{ try{localStorage.setItem("shox_parts",      JSON.stringify(parts));}catch{} },[parts]);
   useEffect(()=>{ try{localStorage.setItem("shox_repairs",    JSON.stringify(repairs));}catch{} },[repairs]);
   useEffect(()=>{ try{localStorage.setItem("shox_acc",        JSON.stringify(accessories));}catch{} },[accessories]);
@@ -11728,13 +11727,37 @@ export default function App() {
   useEffect(()=>{ try{localStorage.setItem("shox_accHistory", JSON.stringify(accHistory));}catch{} },[accHistory]);
   useEffect(()=>{ try{localStorage.setItem("shox_ustaRecords",JSON.stringify(ustaRecords));}catch{} },[ustaRecords]);
 
-  // Mode: ichki yoki ishchi
-  const [mode,     setMode]      = useState(()=>localStorage.getItem("shox_mode")||"ichki");
-  const [innerUnlocked, setInnerUnlocked] = useState(false);
-  const [page,     setPage]      = useState("dashboard");
-  const [aiOpen,   setAiOpen]    = useState(false);
+  const [mode,          setMode]         = useState("ishchi");
+  const [innerUnlocked, setInnerUnlocked]= useState(false);
+  const [page,          setPage]         = useState("dashboard");
+  const [showPinModal,  setShowPinModal] = useState(false);
+  const [pinInput,      setPinInput]     = useState("");
+  const [pinError,      setPinError]     = useState(false);
 
   useEffect(()=>{ localStorage.setItem("shox_mode", mode); },[mode]);
+
+  const getPin = () => { try{return localStorage.getItem("shox_main_pin")||"1234";}catch{return "1234";} };
+
+  const switchToInner = () => {
+    if(innerUnlocked) { setMode("ichki"); return; }
+    setShowPinModal(true);
+    setPinInput(""); setPinError(false);
+  };
+
+  const handlePinSubmit = () => {
+    if(pinInput === getPin()) {
+      setInnerUnlocked(true);
+      setMode("ichki");
+      setPage("dashboard");
+      setShowPinModal(false);
+    } else {
+      setPinError(true);
+      setPinInput("");
+      setTimeout(()=>setPinError(false), 1500);
+    }
+  };
+
+  const switchToWorker = () => { setMode("ishchi"); setPage("tovarlar"); };
 
   const props = { parts,setParts,repairs,setRepairs,accessories,setAccessories,
     sales,setSales,losses,setLosses,debts,setDebts,incomes,setIncomes,
@@ -11742,50 +11765,109 @@ export default function App() {
     setPage };
 
   const renderPage = () => {
-    if(page==="dashboard")    return <Dashboard {...props}/>;
-    if(page==="tovarlar")     return <TovarlarPage {...props}/>;
-    if(page==="zapchastlar")  return <ZapchastlarPage {...props}/>;
-    if(page==="aksessuarlar") return <AksessuarlarPage {...props}/>;
-    if(page==="remont")       return <RemontPage {...props}/>;
-    if(page==="moliya")       return <MoliyaPage {...props}/>;
-    if(page==="qarzlar")      return <QarzlarPage {...props}/>;
-    if(page==="ustalar")      return <UstalarPage {...props}/>;
-    if(page==="statistika")   return <StatistikaPage {...props}/>;
-    if(page==="nastroyka")    return <NastroykaPage/>;
+    if(mode === "ishchi") {
+      if(page==="tovarlar")    return <TovarlarPage {...props}/>;
+      if(page==="remont")      return <RemontPage {...props}/>;
+      if(page==="ustalar")     return <UstalarPage {...props}/>;
+      return <TovarlarPage {...props}/>;
+    }
+    // ichki rejim
+    if(page==="dashboard")   return <Dashboard {...props}/>;
+    if(page==="tovarlar")    return <TovarlarPage {...props}/>;
+    if(page==="zapchastlar") return <ZapchastlarPage {...props}/>;
+    if(page==="aksessuarlar")return <AksessuarlarPage {...props}/>;
+    if(page==="remont")      return <RemontPage {...props}/>;
+    if(page==="moliya")      return <MoliyaPage {...props}/>;
+    if(page==="qarzlar")     return <QarzlarPage {...props}/>;
+    if(page==="ustalar")     return <UstalarPage {...props}/>;
+    if(page==="statistika")  return <StatistikaPage {...props}/>;
+    if(page==="nastroyka")   return <NastroykaPage/>;
     return <Dashboard {...props}/>;
   };
 
   const nav = mode==="ishchi" ? NAV_WORKER : NAV_INNER;
 
   return (
-    <div style={{display:"flex",height:"100vh",background:T.bg,color:T.text,fontFamily:"Inter,system-ui,sans-serif",fontSize:13,overflow:"hidden"}}>
+    <div style={{display:"flex",height:"100vh",width:"100vw",background:T.bg,color:T.text,
+      fontFamily:"Inter,system-ui,sans-serif",fontSize:13,overflow:"hidden",position:"fixed",top:0,left:0}}>
+
       {/* Sidebar */}
-      <div style={{width:52,background:T.surface,borderRight:"1px solid "+T.border,display:"flex",flexDirection:"column",alignItems:"center",paddingTop:12,gap:4,flexShrink:0}}>
-        <div style={{width:32,height:32,borderRadius:8,background:T.brand,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8,fontSize:16}}>🔧</div>
+      <div style={{width:54,background:T.surface,borderRight:"1px solid "+T.border,
+        display:"flex",flexDirection:"column",alignItems:"center",paddingTop:10,gap:2,flexShrink:0}}>
+
+        {/* Logo */}
+        <div style={{width:34,height:34,borderRadius:9,background:T.brand,display:"flex",
+          alignItems:"center",justifyContent:"center",marginBottom:6,fontSize:18,flexShrink:0}}>🔧</div>
+
+        {/* Nav buttons */}
         {nav.map(n=>(
-          <button key={n.id} onClick={()=>setPage(n.id)}
-            title={n.label}
-            style={{width:40,height:40,borderRadius:8,border:"none",background:page===n.id?T.brand+"22":"transparent",
-              color:page===n.id?T.brand:T.muted,cursor:"pointer",display:"flex",alignItems:"center",
-              justifyContent:"center",fontSize:18,transition:"all 0.15s"}}>
+          <button key={n.id} onClick={()=>setPage(n.id)} title={n.label}
+            style={{width:42,height:42,borderRadius:9,border:"none",
+              background:page===n.id?T.brand+"33":"transparent",
+              color:page===n.id?T.brand:T.muted,cursor:"pointer",
+              display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:20,transition:"all 0.15s",flexShrink:0}}>
             {n.icon}
           </button>
         ))}
+
         <div style={{flex:1}}/>
-        {/* Mode toggle */}
-        <button onClick={()=>setMode(m=>m==="ichki"?"ishchi":"ichki")}
-          title={mode==="ichki"?"Ishchi rejimga o'tish":"Ichki rejimga o'tish"}
-          style={{width:40,height:40,borderRadius:8,border:"none",background:"transparent",
-            color:mode==="ichki"?T.warning:T.success,cursor:"pointer",fontSize:18,marginBottom:8}}>
-          {mode==="ichki"?"👑":"👷"}
-        </button>
+
+        {/* Mode tugmasi */}
+        {mode==="ishchi" ? (
+          <button onClick={switchToInner} title="Ichki rejim (PIN kerak)"
+            style={{width:42,height:42,borderRadius:9,border:"none",background:"transparent",
+              color:T.warning,cursor:"pointer",fontSize:20,marginBottom:6,flexShrink:0}}>👑</button>
+        ) : (
+          <button onClick={switchToWorker} title="Ishchi rejimga o'tish"
+            style={{width:42,height:42,borderRadius:9,border:"none",background:"transparent",
+              color:T.success,cursor:"pointer",fontSize:20,marginBottom:6,flexShrink:0}}>👷</button>
+        )}
       </div>
-      {/* Main content */}
-      <div style={{flex:1,overflow:"auto",position:"relative"}}>
+
+      {/* Main */}
+      <div style={{flex:1,overflow:"auto",position:"relative",minWidth:0}}>
         {renderPage()}
-        {/* AI Button */}
         <GlobalAIButton {...props} mode={mode} innerUnlocked={innerUnlocked}/>
       </div>
+
+      {/* PIN Modal */}
+      {showPinModal && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",
+          alignItems:"center",justifyContent:"center",zIndex:9999}}>
+          <div style={{background:T.card,borderRadius:16,padding:28,width:280,
+            border:"1px solid "+T.border,textAlign:"center"}}>
+            <div style={{fontSize:32,marginBottom:12}}>🔐</div>
+            <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>Ichki rejim</div>
+            <div style={{fontSize:12,color:T.muted,marginBottom:16}}>PIN kodni kiriting</div>
+            <input type="password" value={pinInput} onChange={e=>setPinInput(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&handlePinSubmit()}
+              autoFocus maxLength={8}
+              placeholder="••••"
+              style={{width:"100%",background:T.surface,border:"1px solid "+(pinError?T.danger:T.border),
+                borderRadius:9,padding:"12px 14px",color:T.text,fontSize:22,outline:"none",
+                textAlign:"center",letterSpacing:6,marginBottom:12,boxSizing:"border-box",
+                transition:"border 0.2s"}}/>
+            {pinError && <div style={{color:T.danger,fontSize:12,marginBottom:10}}>❌ PIN noto'g'ri</div>}
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setShowPinModal(false)}
+                style={{flex:1,padding:"10px",borderRadius:9,background:T.surface,
+                  border:"1px solid "+T.border,color:T.muted,fontSize:13,cursor:"pointer"}}>
+                Bekor
+              </button>
+              <button onClick={handlePinSubmit}
+                style={{flex:1,padding:"10px",borderRadius:9,background:T.brand,
+                  border:"none",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                Kirish
+              </button>
+            </div>
+            <div style={{fontSize:10,color:T.muted,marginTop:10}}>Default PIN: 1234</div>
+          </div>
+        </div>
+      )}
+
+      <style>{`* { box-sizing: border-box; } body { margin: 0; overflow: hidden; }
+        @keyframes aipulse{0%,100%{opacity:0.3}50%{opacity:1}}`}</style>
     </div>
   );
 }
