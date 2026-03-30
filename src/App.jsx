@@ -11703,3 +11703,89 @@ const NAV_INNER = [
   { id:"statistika",  label:"Statistika",      icon:"📊", path:"M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
   { id:"nastroyka",   label:"Nastroyka",       icon:"⚙️", path:"M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" },
 ];
+// ── ASOSIY APP KOMPONENT ──────────────────────────────────────────────────────
+export default function App() {
+  const [parts,      setParts]      = useState(() => { try { const v=localStorage.getItem("shox_parts");      return v?JSON.parse(v):INIT_PARTS; } catch{return INIT_PARTS;} });
+  const [repairs,    setRepairs]    = useState(() => { try { const v=localStorage.getItem("shox_repairs");    return v?JSON.parse(v):INIT_REPAIRS; } catch{return INIT_REPAIRS;} });
+  const [accessories,setAccessories]= useState(() => { try { const v=localStorage.getItem("shox_acc");       return v?JSON.parse(v):INIT_ACC; } catch{return INIT_ACC;} });
+  const [sales,      setSales]      = useState(() => { try { const v=localStorage.getItem("shox_sales");      return v?JSON.parse(v):[]; } catch{return [];} });
+  const [losses,     setLosses]     = useState(() => { try { const v=localStorage.getItem("shox_losses");     return v?JSON.parse(v):[]; } catch{return [];} });
+  const [debts,      setDebts]      = useState(() => { try { const v=localStorage.getItem("shox_debts");      return v?JSON.parse(v):[]; } catch{return [];} });
+  const [incomes,    setIncomes]    = useState(() => { try { const v=localStorage.getItem("shox_incomes");    return v?JSON.parse(v):[]; } catch{return [];} });
+  const [partHistory,setPartHistory]= useState(() => { try { const v=localStorage.getItem("shox_partHistory");return v?JSON.parse(v):[]; } catch{return [];} });
+  const [accHistory, setAccHistory] = useState(() => { try { const v=localStorage.getItem("shox_accHistory"); return v?JSON.parse(v):[]; } catch{return [];} });
+  const [ustaRecords,setUstaRecords]= useState(() => { try { const v=localStorage.getItem("shox_ustaRecords");return v?JSON.parse(v):[]; } catch{return [];} });
+
+  // localStorage sync
+  useEffect(()=>{ try{localStorage.setItem("shox_parts",      JSON.stringify(parts));}catch{} },[parts]);
+  useEffect(()=>{ try{localStorage.setItem("shox_repairs",    JSON.stringify(repairs));}catch{} },[repairs]);
+  useEffect(()=>{ try{localStorage.setItem("shox_acc",        JSON.stringify(accessories));}catch{} },[accessories]);
+  useEffect(()=>{ try{localStorage.setItem("shox_sales",      JSON.stringify(sales));}catch{} },[sales]);
+  useEffect(()=>{ try{localStorage.setItem("shox_losses",     JSON.stringify(losses));}catch{} },[losses]);
+  useEffect(()=>{ try{localStorage.setItem("shox_debts",      JSON.stringify(debts));}catch{} },[debts]);
+  useEffect(()=>{ try{localStorage.setItem("shox_incomes",    JSON.stringify(incomes));}catch{} },[incomes]);
+  useEffect(()=>{ try{localStorage.setItem("shox_partHistory",JSON.stringify(partHistory));}catch{} },[partHistory]);
+  useEffect(()=>{ try{localStorage.setItem("shox_accHistory", JSON.stringify(accHistory));}catch{} },[accHistory]);
+  useEffect(()=>{ try{localStorage.setItem("shox_ustaRecords",JSON.stringify(ustaRecords));}catch{} },[ustaRecords]);
+
+  // Mode: ichki yoki ishchi
+  const [mode,     setMode]      = useState(()=>localStorage.getItem("shox_mode")||"ichki");
+  const [innerUnlocked, setInnerUnlocked] = useState(false);
+  const [page,     setPage]      = useState("dashboard");
+  const [aiOpen,   setAiOpen]    = useState(false);
+
+  useEffect(()=>{ localStorage.setItem("shox_mode", mode); },[mode]);
+
+  const props = { parts,setParts,repairs,setRepairs,accessories,setAccessories,
+    sales,setSales,losses,setLosses,debts,setDebts,incomes,setIncomes,
+    partHistory,setPartHistory,accHistory,setAccHistory,ustaRecords,setUstaRecords,
+    setPage };
+
+  const renderPage = () => {
+    if(page==="dashboard")    return <Dashboard {...props}/>;
+    if(page==="tovarlar")     return <TovarlarPage {...props}/>;
+    if(page==="zapchastlar")  return <ZapchastlarPage {...props}/>;
+    if(page==="aksessuarlar") return <AksessuarlarPage {...props}/>;
+    if(page==="remont")       return <RemontPage {...props}/>;
+    if(page==="moliya")       return <MoliyaPage {...props}/>;
+    if(page==="qarzlar")      return <QarzlarPage {...props}/>;
+    if(page==="ustalar")      return <UstalarPage {...props}/>;
+    if(page==="statistika")   return <StatistikaPage {...props}/>;
+    if(page==="nastroyka")    return <NastroykaPage/>;
+    return <Dashboard {...props}/>;
+  };
+
+  const nav = mode==="ishchi" ? NAV_WORKER : NAV_INNER;
+
+  return (
+    <div style={{display:"flex",height:"100vh",background:T.bg,color:T.text,fontFamily:"Inter,system-ui,sans-serif",fontSize:13,overflow:"hidden"}}>
+      {/* Sidebar */}
+      <div style={{width:52,background:T.surface,borderRight:"1px solid "+T.border,display:"flex",flexDirection:"column",alignItems:"center",paddingTop:12,gap:4,flexShrink:0}}>
+        <div style={{width:32,height:32,borderRadius:8,background:T.brand,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:8,fontSize:16}}>🔧</div>
+        {nav.map(n=>(
+          <button key={n.id} onClick={()=>setPage(n.id)}
+            title={n.label}
+            style={{width:40,height:40,borderRadius:8,border:"none",background:page===n.id?T.brand+"22":"transparent",
+              color:page===n.id?T.brand:T.muted,cursor:"pointer",display:"flex",alignItems:"center",
+              justifyContent:"center",fontSize:18,transition:"all 0.15s"}}>
+            {n.icon}
+          </button>
+        ))}
+        <div style={{flex:1}}/>
+        {/* Mode toggle */}
+        <button onClick={()=>setMode(m=>m==="ichki"?"ishchi":"ichki")}
+          title={mode==="ichki"?"Ishchi rejimga o'tish":"Ichki rejimga o'tish"}
+          style={{width:40,height:40,borderRadius:8,border:"none",background:"transparent",
+            color:mode==="ichki"?T.warning:T.success,cursor:"pointer",fontSize:18,marginBottom:8}}>
+          {mode==="ichki"?"👑":"👷"}
+        </button>
+      </div>
+      {/* Main content */}
+      <div style={{flex:1,overflow:"auto",position:"relative"}}>
+        {renderPage()}
+        {/* AI Button */}
+        <GlobalAIButton {...props} mode={mode} innerUnlocked={innerUnlocked}/>
+      </div>
+    </div>
+  );
+}
