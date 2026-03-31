@@ -11623,3 +11623,5 @@ export default function App() {
     </div>
   );
 }
+
+// v2.1 - Catalog based ZapchastlarPage
