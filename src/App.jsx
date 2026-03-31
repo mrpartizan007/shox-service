@@ -11465,9 +11465,9 @@ const NAV_INNER = [
 // ── ASOSIY APP KOMPONENT ──────────────────────────────────────────────────────
 export default function App() {
   // ── SUPABASE + localStorage HYBRID ──────────────────
-  const [parts,       setParts,      partsLoaded]       = useDbTable("parts",       INIT_PARTS.map(p=>({...p,id:uid()})));
-  const [repairs,     setRepairs,    repairsLoaded]      = useDbTable("repairs",     INIT_REPAIRS.map(p=>({...p,id:uid()})));
-  const [accessories, setAccessories,accLoaded]          = useDbTable("accessories", INIT_ACC.map(p=>({...p,id:uid()})));
+  const [parts,       setParts,      partsLoaded]       = useDbTable("parts");
+  const [repairs,     setRepairs,    repairsLoaded]      = useDbTable("repairs");
+  const [accessories, setAccessories,accLoaded]          = useDbTable("accessories");
   const [sales,       setSales]                          = useDbTable("sales");
   const [losses,      setLosses]                         = useDbTable("losses");
   const [debts,       setDebts]                          = useDbTable("debts");
