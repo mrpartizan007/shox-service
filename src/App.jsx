@@ -1,6 +1,115 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 
+
+// ═══════════════════════════════════════════════════════
+// SUPABASE CONFIG
+// ═══════════════════════════════════════════════════════
+const SUPA_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+
+const db = {
+  async get(table, qs="") {
+    try {
+      const r = await fetch(`${SUPA_URL}/rest/v1/${table}?${qs}&limit=10000`, {
+        headers:{"apikey":SUPA_KEY,"Authorization":`Bearer ${SUPA_KEY}`}
+      });
+      if(!r.ok) return null;
+      return r.json();
+    } catch { return null; }
+  },
+  async upsert(table, rows) {
+    if(!rows||!rows.length) return;
+    try {
+      await fetch(`${SUPA_URL}/rest/v1/${table}`, {
+        method:"POST",
+        headers:{"apikey":SUPA_KEY,"Authorization":`Bearer ${SUPA_KEY}`,
+          "Content-Type":"application/json",
+          "Prefer":"resolution=merge-duplicates"},
+        body: JSON.stringify(rows)
+      });
+    } catch {}
+  },
+  async del(table, id) {
+    try {
+      await fetch(`${SUPA_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, {
+        method:"DELETE",
+        headers:{"apikey":SUPA_KEY,"Authorization":`Bearer ${SUPA_KEY}`}
+      });
+    } catch {}
+  },
+  async patch(table, id, data) {
+    try {
+      await fetch(`${SUPA_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, {
+        method:"PATCH",
+        headers:{"apikey":SUPA_KEY,"Authorization":`Bearer ${SUPA_KEY}`,
+          "Content-Type":"application/json"},
+        body: JSON.stringify(data)
+      });
+    } catch {}
+  }
+};
+
+// snake_case <-> camelCase
+const toSn = obj => {
+  const m={buyPrice:"buy_price",sellPrice:"sell_price",laborPrice:"labor_price",dueDate:"due_date"};
+  const r={};
+  for(const[k,v] of Object.entries(obj)) r[m[k]||k]=v;
+  return r;
+};
+const fromSn = obj => ({
+  ...obj,
+  buyPrice:   obj.buy_price   ?? obj.buyPrice   ?? 0,
+  sellPrice:  obj.sell_price  ?? obj.sellPrice  ?? 0,
+  laborPrice: obj.labor_price ?? obj.laborPrice ?? 0,
+  dueDate:    obj.due_date    ?? obj.dueDate    ?? "",
+});
+
+// Debounce
+function useDebounce(fn, ms=600) {
+  const t = React.useRef(null);
+  return React.useCallback((...a)=>{ clearTimeout(t.current); t.current=setTimeout(()=>fn(...a),ms); },[fn]);
+}
+
+// Supabase + localStorage hybrid hook
+function useDbTable(tableName, initData=[]) {
+  const lsKey = "shox_"+tableName;
+  const [data, _setData] = useState(()=>{
+    try{ const v=localStorage.getItem(lsKey); return v?JSON.parse(v):initData; }catch{ return initData; }
+  });
+  const [loaded, setLoaded] = useState(false);
+  const [synced, setSynced] = useState(false);
+
+  // localStorage sync (tez)
+  const setData = React.useCallback((val) => {
+    _setData(val);
+    try{ localStorage.setItem(lsKey, JSON.stringify(typeof val==="function"?val(data):val)); }catch{}
+  }, [lsKey]);
+
+  // Supabase load (fon)
+  useEffect(()=>{
+    if(!SUPA_URL) { setLoaded(true); return; }
+    db.get(tableName, "order=created_at.asc").then(rows=>{
+      if(rows && rows.length>0) {
+        const mapped = rows.map(fromSn);
+        _setData(mapped);
+        try{ localStorage.setItem(lsKey, JSON.stringify(mapped)); }catch{}
+        setSynced(true);
+      } else if(initData.length>0 && !synced) {
+        // Birinchi marta - Supbasega yuborish
+        const chunks = [];
+        for(let i=0;i<initData.length;i+=500) chunks.push(initData.slice(i,i+500));
+        chunks.reduce((p,chunk)=>p.then(()=>db.upsert(tableName,chunk.map(toSn))), Promise.resolve())
+          .then(()=>setSynced(true));
+      }
+      setLoaded(true);
+    }).catch(()=>setLoaded(true));
+  },[]);
+
+  return [data, setData, loaded];
+}
+
+
 const T = {
   bg: "#07090F", surface: "#0D1117", card: "#111620", border: "rgba(70,130,220,0.08)",
   borderStrong: "rgba(70,130,220,0.18)", brand: "#1A6FD4", brandDim: "rgba(26,111,212,0.14)",
@@ -11721,38 +11830,19 @@ const NAV_INNER = [
 ];
 // ── ASOSIY APP KOMPONENT ──────────────────────────────────────────────────────
 export default function App() {
-  const [parts,       setParts]      = useState(() => { 
-    try { 
-      const v=localStorage.getItem("shox_parts");
-      if(v) return JSON.parse(v);
-      // Birinchi marta: INIT_PARTS ni localStorage ga saqlaymiz
-      const initData = INIT_PARTS.map(p=>({...p,id:uid()}));
-      try{ localStorage.setItem("shox_parts", JSON.stringify(initData)); }catch{}
-      return initData;
-    } catch{return [];} 
-  });
-  const [repairs,     setRepairs]    = useState(() => { try { const v=localStorage.getItem("shox_repairs");    return v?JSON.parse(v):INIT_REPAIRS.map(p=>({...p,id:uid()})); } catch{return [];} });
-  const [accessories, setAccessories]= useState(() => { try { const v=localStorage.getItem("shox_acc");        return v?JSON.parse(v):INIT_ACC.map(p=>({...p,id:uid()})); } catch{return [];} });
-  const [sales,       setSales]      = useState(() => { try { const v=localStorage.getItem("shox_sales");      return v?JSON.parse(v):[]; } catch{return [];} });
-  const [losses,      setLosses]     = useState(() => { try { const v=localStorage.getItem("shox_losses");     return v?JSON.parse(v):[]; } catch{return [];} });
-  const [debts,       setDebts]      = useState(() => { try { const v=localStorage.getItem("shox_debts");      return v?JSON.parse(v):[]; } catch{return [];} });
-  const [incomes,     setIncomes]    = useState(() => { try { const v=localStorage.getItem("shox_incomes");    return v?JSON.parse(v):[]; } catch{return [];} });
-  const [partHistory, setPartHistory]= useState(() => { try { const v=localStorage.getItem("shox_partHistory");return v?JSON.parse(v):[]; } catch{return [];} });
-  const [accHistory,  setAccHistory] = useState(() => { try { const v=localStorage.getItem("shox_accHistory"); return v?JSON.parse(v):[]; } catch{return [];} });
-  const [ustaRecords, setUstaRecords]= useState(() => { try { const v=localStorage.getItem("shox_ustaRecords");return v?JSON.parse(v):[]; } catch{return [];} });
+  // ── SUPABASE + localStorage HYBRID ──────────────────
+  const [parts,       setParts,      partsLoaded]       = useDbTable("parts",       INIT_PARTS.map(p=>({...p,id:uid()})));
+  const [repairs,     setRepairs,    repairsLoaded]      = useDbTable("repairs",     INIT_REPAIRS.map(p=>({...p,id:uid()})));
+  const [accessories, setAccessories,accLoaded]          = useDbTable("accessories", INIT_ACC.map(p=>({...p,id:uid()})));
+  const [sales,       setSales]                          = useDbTable("sales");
+  const [losses,      setLosses]                         = useDbTable("losses");
+  const [debts,       setDebts]                          = useDbTable("debts");
+  const [incomes,     setIncomes]                        = useDbTable("incomes");
+  const [partHistory, setPartHistory]                    = useDbTable("part_history");
+  const [accHistory,  setAccHistory]                     = useDbTable("acc_history");
+  const [ustaRecords, setUstaRecords]                    = useDbTable("usta_records");
 
-  useEffect(()=>{ try{localStorage.setItem("shox_parts",      JSON.stringify(parts));}catch{} },[parts]);
-  useEffect(()=>{ try{localStorage.setItem("shox_repairs",    JSON.stringify(repairs));}catch{} },[repairs]);
-  useEffect(()=>{ try{localStorage.setItem("shox_acc",        JSON.stringify(accessories));}catch{} },[accessories]);
-  useEffect(()=>{ try{localStorage.setItem("shox_sales",      JSON.stringify(sales));}catch{} },[sales]);
-  useEffect(()=>{ try{localStorage.setItem("shox_losses",     JSON.stringify(losses));}catch{} },[losses]);
-  useEffect(()=>{ try{localStorage.setItem("shox_debts",      JSON.stringify(debts));}catch{} },[debts]);
-  useEffect(()=>{ try{localStorage.setItem("shox_incomes",    JSON.stringify(incomes));}catch{} },[incomes]);
-  useEffect(()=>{ try{localStorage.setItem("shox_partHistory",JSON.stringify(partHistory));}catch{} },[partHistory]);
-  useEffect(()=>{ try{localStorage.setItem("shox_accHistory", JSON.stringify(accHistory));}catch{} },[accHistory]);
-  useEffect(()=>{ try{localStorage.setItem("shox_ustaRecords",JSON.stringify(ustaRecords));}catch{} },[ustaRecords]);
-
-  const [mode,          setMode]         = useState("ishchi");
+  const [mode,          setMode]         = useState(()=>localStorage.getItem("shox_mode")||"ishchi");
   const [innerUnlocked, setInnerUnlocked]= useState(false);
   const [page,          setPage]         = useState("dashboard");
   const [showPinModal,  setShowPinModal] = useState(false);
@@ -11771,18 +11861,17 @@ export default function App() {
 
   const handlePinSubmit = () => {
     if(pinInput === getPin()) {
-      setInnerUnlocked(true);
-      setMode("ichki");
-      setPage("dashboard");
-      setShowPinModal(false);
+      setInnerUnlocked(true); setMode("ichki");
+      setPage("dashboard"); setShowPinModal(false);
     } else {
-      setPinError(true);
-      setPinInput("");
+      setPinError(true); setPinInput("");
       setTimeout(()=>setPinError(false), 1500);
     }
   };
 
   const switchToWorker = () => { setMode("ishchi"); setPage("tovarlar"); };
+
+  const isLoading = !partsLoaded || !repairsLoaded || !accLoaded;
 
   const props = { parts,setParts,repairs,setRepairs,accessories,setAccessories,
     sales,setSales,losses,setLosses,debts,setDebts,incomes,setIncomes,
@@ -11796,7 +11885,6 @@ export default function App() {
       if(page==="ustalar")     return <UstalarPage {...props}/>;
       return <TovarlarPage {...props}/>;
     }
-    // ichki rejim
     if(page==="dashboard")   return <Dashboard {...props}/>;
     if(page==="tovarlar")    return <TovarlarPage {...props}/>;
     if(page==="zapchastlar") return <ZapchastlarPage {...props}/>;
@@ -11812,6 +11900,20 @@ export default function App() {
 
   const nav = mode==="ishchi" ? NAV_WORKER : NAV_INNER;
 
+  // Loading screen
+  if(isLoading) return (
+    <div style={{display:"flex",height:"100vh",alignItems:"center",justifyContent:"center",
+      background:T.bg,flexDirection:"column",gap:16}}>
+      <div style={{fontSize:32}}>🔧</div>
+      <div style={{color:T.text,fontWeight:700,fontSize:16}}>Shox Service</div>
+      <div style={{color:T.muted,fontSize:12}}>Ma'lumotlar yuklanmoqda...</div>
+      <div style={{width:200,height:3,background:T.surface,borderRadius:2,overflow:"hidden",marginTop:8}}>
+        <div style={{width:"60%",height:"100%",background:T.brand,borderRadius:2,
+          animation:"loading 1.2s ease-in-out infinite"}}/>
+      </div>
+    </div>
+  );
+
   return (
     <div style={{display:"flex",height:"100vh",width:"100vw",background:T.bg,color:T.text,
       fontFamily:"Inter,system-ui,sans-serif",fontSize:13,overflow:"hidden",position:"fixed",top:0,left:0}}>
@@ -11819,34 +11921,27 @@ export default function App() {
       {/* Sidebar */}
       <div style={{width:54,background:T.surface,borderRight:"1px solid "+T.border,
         display:"flex",flexDirection:"column",alignItems:"center",paddingTop:10,gap:2,flexShrink:0}}>
-
-        {/* Logo */}
         <div style={{width:34,height:34,borderRadius:9,background:T.brand,display:"flex",
-          alignItems:"center",justifyContent:"center",marginBottom:6,fontSize:18,flexShrink:0}}>🔧</div>
-
-        {/* Nav buttons */}
+          alignItems:"center",justifyContent:"center",marginBottom:6,fontSize:18}}>🔧</div>
         {nav.map(n=>(
           <button key={n.id} onClick={()=>setPage(n.id)} title={n.label}
             style={{width:42,height:42,borderRadius:9,border:"none",
               background:page===n.id?T.brand+"33":"transparent",
               color:page===n.id?T.brand:T.muted,cursor:"pointer",
               display:"flex",alignItems:"center",justifyContent:"center",
-              fontSize:20,transition:"all 0.15s",flexShrink:0}}>
+              fontSize:20,transition:"all 0.15s"}}>
             {n.icon}
           </button>
         ))}
-
         <div style={{flex:1}}/>
-
-        {/* Mode tugmasi */}
         {mode==="ishchi" ? (
-          <button onClick={switchToInner} title="Ichki rejim (PIN kerak)"
+          <button onClick={switchToInner} title="Ichki rejim"
             style={{width:42,height:42,borderRadius:9,border:"none",background:"transparent",
-              color:T.warning,cursor:"pointer",fontSize:20,marginBottom:6,flexShrink:0}}>👑</button>
+              color:T.warning,cursor:"pointer",fontSize:20,marginBottom:6}}>👑</button>
         ) : (
-          <button onClick={switchToWorker} title="Ishchi rejimga o'tish"
+          <button onClick={switchToWorker} title="Ishchi rejim"
             style={{width:42,height:42,borderRadius:9,border:"none",background:"transparent",
-              color:T.success,cursor:"pointer",fontSize:20,marginBottom:6,flexShrink:0}}>👷</button>
+              color:T.success,cursor:"pointer",fontSize:20,marginBottom:6}}>👷</button>
         )}
       </div>
 
@@ -11867,32 +11962,30 @@ export default function App() {
             <div style={{fontSize:12,color:T.muted,marginBottom:16}}>PIN kodni kiriting</div>
             <input type="password" value={pinInput} onChange={e=>setPinInput(e.target.value)}
               onKeyDown={e=>e.key==="Enter"&&handlePinSubmit()}
-              autoFocus maxLength={8}
-              placeholder="••••"
+              autoFocus maxLength={8} placeholder="••••"
               style={{width:"100%",background:T.surface,border:"1px solid "+(pinError?T.danger:T.border),
                 borderRadius:9,padding:"12px 14px",color:T.text,fontSize:22,outline:"none",
-                textAlign:"center",letterSpacing:6,marginBottom:12,boxSizing:"border-box",
-                transition:"border 0.2s"}}/>
+                textAlign:"center",letterSpacing:6,marginBottom:12,boxSizing:"border-box"}}/>
             {pinError && <div style={{color:T.danger,fontSize:12,marginBottom:10}}>❌ PIN noto'g'ri</div>}
             <div style={{display:"flex",gap:10}}>
               <button onClick={()=>setShowPinModal(false)}
                 style={{flex:1,padding:"10px",borderRadius:9,background:T.surface,
-                  border:"1px solid "+T.border,color:T.muted,fontSize:13,cursor:"pointer"}}>
-                Bekor
-              </button>
+                  border:"1px solid "+T.border,color:T.muted,fontSize:13,cursor:"pointer"}}>Bekor</button>
               <button onClick={handlePinSubmit}
                 style={{flex:1,padding:"10px",borderRadius:9,background:T.brand,
-                  border:"none",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                Kirish
-              </button>
+                  border:"none",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>Kirish</button>
             </div>
             <div style={{fontSize:10,color:T.muted,marginTop:10}}>Default PIN: 1234</div>
           </div>
         </div>
       )}
 
-      <style>{`* { box-sizing: border-box; } body { margin: 0; overflow: hidden; }
-        @keyframes aipulse{0%,100%{opacity:0.3}50%{opacity:1}}`}</style>
+      <style>{`
+        *{box-sizing:border-box;}
+        body{margin:0;overflow:hidden;}
+        @keyframes loading{0%{transform:translateX(-100%)}100%{transform:translateX(500%)}}
+        @keyframes aipulse{0%,100%{opacity:0.3}50%{opacity:1}}
+      `}</style>
     </div>
   );
 }
