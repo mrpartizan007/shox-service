@@ -1601,785 +1601,419 @@ function TovarlarPage({ parts, setParts, accessories, setAccessories, setSales, 
 
 
 function ZapchastlarPage({ parts, setParts, partHistory, setPartHistory, setSales }) {
-  const [modal, setModal] = useState(false);
-  const [bulkModal, setBulkModal] = useState(false);
-  const [cardPart, setCardPart] = useState(null);
-  const [saleModal, setSaleModal] = useState(false);
-  const [saleItem, setSaleItem] = useState(null);
-  const [saleQty, setSaleQty] = useState("1");
-  const [salePrice, setSalePrice] = useState("");
-  const [returnModal, setReturnModal] = useState(false);
-  const [returnItem, setReturnItem] = useState(null);
-  const [returnQty, setReturnQty] = useState("1");
-  const [returnNote, setReturnNote] = useState(""); // tovar kartasi
-  const [search, setSearch] = useState("");
-  const [filterType, setFilterType] = useState("Hammasi");
-  const [typeDropOpen, setTypeDropOpen] = useState(false);
-  const [editId, setEditId] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [revealedPrices, setRevealedPrices] = useState({});
-  const [sortCol, setSortCol] = useState(null);
-  const [sortDir, setSortDir] = useState("asc");
-  const [form, setForm] = useState({ brand:"iPhone", model:"", type:"Ekran", buyPrice:"", sellPrice:"", count:"", newArrivalCount:"", newArrivalDate:today() });
-  const sf = k => v => setForm(f=> k==="brand" ? {...f, brand:v, model:""} : {...f,[k]:v});
+  const SUPA_URL = import.meta.env.VITE_SUPABASE_URL || "";
+  const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
-  const emptyRow = () => ({ id:uid(), brand:"iPhone", model:"", type:"Ekran", buyPrice:"", sellPrice:"", count:"", date:today() });
-  const [bulkRows, setBulkRows] = useState([emptyRow(), emptyRow(), emptyRow()]);
-  const setBR = (i,k,v) => setBulkRows(prev=>prev.map((r,idx)=>{
-    if(idx!==i) return r;
-    if(k==="brand") return {...r, brand:v, model:""};
-    return {...r,[k]:v};
-  }));
+  // UI state
+  const [selBrand,  setSelBrand]  = useState("");
+  const [selModel,  setSelModel]  = useState("");
+  const [selType,   setSelType]   = useState("");
+  const [search,    setSearch]    = useState("");
+  const [results,   setResults]   = useState([]);
+  const [loading,   setLoading]   = useState(false);
+  const [brands,    setBrands]    = useState([]);
+  const [models,    setModels]    = useState([]);
+  const [types,     setTypes]     = useState([]);
 
-  // ── EXCEL EXPORT ──────────────────────────────────────────────────────────────
-  const exportExcel = () => {
-    const rows = [
-      ["Brend","Model","Turi","Kelgan narx","Sotish narx","Foyda","Soni","Holat"],
-      ...parts.map(p=>[
-        p.brand||"",
-        p.model?.replace((p.brand||"")+" ","") || p.model||"",
-        p.type||"",
-        p.buyPrice||0,
-        p.sellPrice||0,
-        (p.sellPrice||0)-(p.buyPrice||0),
-        p.count||0,
-        p.count<=5?"Kritik":p.count<=10?"Kam":"Yetarli"
-      ])
-    ];
-    const csv = rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");
-    const bom = "\uFEFF";
-    const blob = new Blob([bom+csv], {type:"text/csv;charset=utf-8;"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href=url; a.download=`ShoxService_Zapchastlar_${today()}.csv`; a.click();
-    URL.revokeObjectURL(url);
-  };
+  // Modal
+  const [modal,     setModal]     = useState(false);
+  const [editItem,  setEditItem]  = useState(null);
+  const [form,      setForm]      = useState({name:"",model:"",type:"",brand:"",buyPrice:0,sellPrice:0,count:0});
+  const [delConfirm,setDelConfirm]= useState(null);
+  const [toast,     setToast]     = useState(null);
 
-  // All part types from data + PART_TYPES
-  const allTypes = ["Hammasi",...Array.from(new Set([...PART_TYPES,...parts.map(p=>p.type)]))];
-  const visibleTypes = allTypes.slice(0,6);
-  const hiddenTypes = allTypes.slice(6);
+  const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),2500); };
 
-  // Sort handler — toggle asc/desc, or switch col
-  const handleSort = (col) => {
-    if(sortCol===col) setSortDir(d=>d==="asc"?"desc":"asc");
-    else { setSortCol(col); setSortDir("asc"); }
-  };
-
-  const sortVal = (p, col) => {
-    if(col==="brand") return (p.brand||"").toLowerCase();
-    if(col==="model") return (p.model||"").toLowerCase();
-    if(col==="type") return (p.type||"").toLowerCase();
-    if(col==="sellPrice") return p.sellPrice||0;
-    if(col==="buyPrice") return p.buyPrice||0;
-    if(col==="profit") return (p.sellPrice||0)-(p.buyPrice||0);
-    if(col==="count") return p.count||0;
-    return "";
-  };
-
-  const filtered = useMemo(()=>{
-    const q = search.toLowerCase();
-    let list = parts.filter(p=>{
-      const matchType = filterType==="Hammasi" || p.type===filterType;
-      const matchSearch = !q || (p.brand||"").toLowerCase().includes(q) ||
-        (p.model||"").toLowerCase().includes(q) || (p.type||"").toLowerCase().includes(q);
-      return matchType && matchSearch;
-    });
-    if(sortCol) {
-      list = [...list].sort((a,b)=>{
-        const av = sortVal(a,sortCol), bv = sortVal(b,sortCol);
-        if(av<bv) return sortDir==="asc"?-1:1;
-        if(av>bv) return sortDir==="asc"?1:-1;
-        return 0;
-      });
+  // Brendlarni yuklash
+  useEffect(()=>{
+    if(!SUPA_URL) {
+      // localStorage dan brendlar
+      const brs = [...new Set(parts.map(p=>p.brand||"Boshqa").filter(Boolean))].sort();
+      setBrands(brs);
+      return;
     }
-    return list;
-  }, [parts, search, filterType, sortCol, sortDir]);
+    fetch(`${SUPA_URL}/rest/v1/parts_catalog?select=brand&order=brand.asc`, {
+      headers:{"apikey":SUPA_KEY,"Authorization":`Bearer ${SUPA_KEY}`}
+    }).then(r=>r.json()).then(rows=>{
+      const brs = [...new Set(rows.map(r=>r.brand).filter(Boolean))].sort();
+      setBrands(brs);
+    }).catch(()=>{
+      const brs = [...new Set(parts.map(p=>p.brand||"Boshqa").filter(Boolean))].sort();
+      setBrands(brs);
+    });
+  },[]);
 
-  const togglePrice = (id) => setRevealedPrices(prev=>({...prev,[id]:!prev[id]}));
+  // Modellarni yuklash (brend tanlanganda)
+  useEffect(()=>{
+    if(!selBrand) { setModels([]); setSelModel(""); setSelType(""); setResults([]); return; }
+    if(!SUPA_URL) {
+      const ms = [...new Set(parts.filter(p=>p.brand===selBrand).map(p=>p.model).filter(Boolean))].sort();
+      setModels(ms);
+      return;
+    }
+    fetch(`${SUPA_URL}/rest/v1/parts_catalog?select=model&brand=eq.${encodeURIComponent(selBrand)}&order=model.asc`, {
+      headers:{"apikey":SUPA_KEY,"Authorization":`Bearer ${SUPA_KEY}`}
+    }).then(r=>r.json()).then(rows=>{
+      const ms = [...new Set(rows.map(r=>r.model).filter(Boolean))].sort();
+      setModels(ms);
+    });
+    setSelModel(""); setSelType(""); setResults([]);
+  },[selBrand]);
 
-  const openAdd = () => { setEditId(null); setForm({brand:"iPhone",model:"",type:"Ekran",buyPrice:"",sellPrice:"",count:"",newArrivalCount:"",newArrivalDate:today()}); setModal(true); };
-  const openEdit = p => { setEditId(p.id); setForm({brand:p.brand||"iPhone",model:p.model||"",type:p.type,buyPrice:p.buyPrice,sellPrice:p.sellPrice,count:p.count,newArrivalCount:"",newArrivalDate:today()}); setModal(true); };
+  // Turlarni yuklash (model tanlanganda)
+  useEffect(()=>{
+    if(!selModel) { setTypes([]); setSelType(""); setResults([]); return; }
+    if(!SUPA_URL) {
+      const ts = [...new Set(parts.filter(p=>p.model===selModel).map(p=>p.type).filter(Boolean))].sort();
+      setTypes(ts);
+      return;
+    }
+    fetch(`${SUPA_URL}/rest/v1/parts_catalog?select=type&model=eq.${encodeURIComponent(selModel)}&order=type.asc`, {
+      headers:{"apikey":SUPA_KEY,"Authorization":`Bearer ${SUPA_KEY}`}
+    }).then(r=>r.json()).then(rows=>{
+      const ts = [...new Set(rows.map(r=>r.type).filter(Boolean))].sort();
+      setTypes(ts);
+    });
+    setSelType(""); setResults([]);
+  },[selModel]);
 
-  const doSave = () => {
-    if(!form.brand||!form.model||form.count==="") return;
-    const fullName = `${form.brand} ${form.model} ${form.type}`;
-    const fullModel = `${form.brand} ${form.model}`;
-    const newCount = +form.count;
+  // Natijalarni yuklash
+  useEffect(()=>{
+    if(!selModel && !search) { setResults([]); return; }
+    setLoading(true);
 
-    if(editId) {
-      // Edit mode
-      const oldPart = parts.find(p=>p.id===editId);
-      if(form.newArrivalCount && +form.newArrivalCount > 0) {
-        const arrCount = +form.newArrivalCount;
-        setPartHistory(prev=>[...prev,{id:uid(),partId:editId,partName:fullName,count:arrCount,buyPrice:+form.buyPrice,date:form.newArrivalDate,type:"kirim"}]);
-        setParts(prev=>prev.map(p=>p.id===editId?{...p,name:fullName,model:fullModel,brand:form.brand,type:form.type,buyPrice:+form.buyPrice,sellPrice:+form.sellPrice,count:oldPart.count+arrCount}:p));
-      } else {
-        setParts(prev=>prev.map(p=>p.id===editId?{...p,name:fullName,model:fullModel,brand:form.brand,type:form.type,buyPrice:+form.buyPrice,sellPrice:+form.sellPrice,count:newCount}:p));
-      }
+    // Do'kon inventaridan (parts) ko'rsatamiz
+    let filtered = parts;
+    if(selBrand)  filtered = filtered.filter(p=>p.brand===selBrand);
+    if(selModel)  filtered = filtered.filter(p=>p.model===selModel);
+    if(selType)   filtered = filtered.filter(p=>p.type===selType);
+    if(search)    filtered = filtered.filter(p=>
+      p.name?.toLowerCase().includes(search.toLowerCase()) ||
+      p.model?.toLowerCase().includes(search.toLowerCase())
+    );
+    setResults(filtered.slice(0,200));
+    setLoading(false);
+  },[selBrand, selModel, selType, search, parts]);
+
+  // Qo'shish / tahrirlash
+  const openAdd = () => {
+    setEditItem(null);
+    setForm({name:selModel&&selType?`${selModel} ${selType}`:"",
+      model:selModel||"",type:selType||"",brand:selBrand||"",
+      buyPrice:0,sellPrice:0,count:0});
+    setModal(true);
+  };
+  const openEdit = (p) => {
+    setEditItem(p);
+    setForm({name:p.name,model:p.model||"",type:p.type||"",brand:p.brand||"",
+      buyPrice:p.buyPrice||0,sellPrice:p.sellPrice||0,count:p.count||0});
+    setModal(true);
+  };
+  const saveItem = () => {
+    if(!form.name) return;
+    if(editItem) {
+      const updated = parts.map(p=>p.id===editItem.id?{...p,...form,
+        buyPrice:+form.buyPrice,sellPrice:+form.sellPrice,count:+form.count}:p);
+      setParts(updated);
+      showToast("Yangilandi ✅");
     } else {
-      // Add mode — check if same brand+model+type already exists
-      const normalizedParts = parts.map(normalizePart);
-      const existIdx = normalizedParts.findIndex(p=>
-        (p.brand||"")===form.brand &&
-        (p.model||"")===fullModel &&
-        (p.type||"")===form.type
-      );
-      if(existIdx >= 0) {
-        const existPart = normalizedParts[existIdx];
-        setPartHistory(prev=>[...prev,{id:uid(),partId:existPart.id,partName:fullName,count:newCount,buyPrice:+form.buyPrice,date:today(),type:"kirim"}]);
-        setParts(normalizedParts.map(p=>p.id===existPart.id?{...p,name:fullName,brand:form.brand,type:form.type,buyPrice:+form.buyPrice,sellPrice:+form.sellPrice,count:p.count+newCount}:p));
-      } else {
-        const newId = uid();
-        setParts(prev=>[...prev,{id:newId,name:fullName,model:fullModel,brand:form.brand,type:form.type,buyPrice:+form.buyPrice,sellPrice:+form.sellPrice,count:newCount}]);
-        setPartHistory(prev=>[...prev,{id:uid(),partId:newId,partName:fullName,count:newCount,buyPrice:+form.buyPrice,date:today(),type:"kirim"}]);
-      }
+      const newItem = {...form,id:uid(),buyPrice:+form.buyPrice,
+        sellPrice:+form.sellPrice,count:+form.count,category:"zapchast"};
+      setParts([...parts, newItem]);
+      showToast("Qo'shildi ✅");
     }
     setModal(false);
   };
-
-  const doDelete = () => { if(!deleteConfirm) return; setParts(prev=>prev.filter(x=>x.id!==deleteConfirm.id)); setDeleteConfirm(null); };
-  const adj = (id,d) => setParts(prev=>prev.map(p=>p.id===id?{...p,count:Math.max(0,p.count+d)}:p));
-
-  const openSale = p => { setSaleItem(p); setSaleQty("1"); setSalePrice(String(p.sellPrice)); setSaleModal(true); };
-  const doSale = () => {
-    if(!saleItem||+saleQty<=0) return;
-    const qty=+saleQty; const price=+salePrice||saleItem.sellPrice;
-    setParts(prev=>prev.map(p=>p.id===saleItem.id?{...p,count:Math.max(0,p.count-qty)}:p));
-    setSales(prev=>[...prev,{id:uid(),date:today(),name:saleItem.name,qty,price:price*qty,profit:(price-saleItem.buyPrice)*qty,type:"zapchast",source:saleItem.name}]);
-    setSaleModal(false); setSaleItem(null);
-  };
-  const openReturn = p => { setReturnItem(p); setReturnQty("1"); setReturnNote(""); setReturnModal(true); };
-  const doReturn = () => {
-    if(!returnItem||+returnQty<=0) return;
-    const qty=+returnQty;
-    setParts(prev=>prev.map(p=>p.id===returnItem.id?{...p,count:p.count+qty}:p));
-    setSales(prev=>[...prev,{id:uid(),date:today(),name:returnItem.name,qty:-qty,price:-(returnItem.sellPrice*qty),profit:-((returnItem.sellPrice-returnItem.buyPrice)*qty),type:"zapchast_qaytdi",note:returnNote}]);
-    setReturnModal(false); setReturnItem(null);
+  const deleteItem = (id) => {
+    setParts(parts.filter(p=>p.id!==id));
+    setDelConfirm(null);
+    showToast("O'chirildi", false);
   };
 
-  const normalizePart = (p) => {
-    if(p.brand) return p;
-    // Try to extract brand from model or name
-    const knownBrands = BRANDS.map(b=>b.name);
-    let brand = "Boshqa";
-    for(const b of knownBrands) {
-      if((p.model||"").startsWith(b+" ") || (p.name||"").startsWith(b+" ")) { brand=b; break; }
-    }
-    return {...p, brand};
+  // Katalogdan tanlash (mavjud bo'lmasa qo'shish)
+  const addFromCatalog = async (catalogItem) => {
+    const exists = parts.find(p=>p.model===catalogItem.model && p.type===catalogItem.type);
+    if(exists) { showToast("Allaqachon mavjud"); return; }
+    const newItem = {
+      id: uid(), name: catalogItem.name, model: catalogItem.model,
+      type: catalogItem.type, brand: catalogItem.brand||selBrand,
+      buyPrice: catalogItem.buy_price||0, sellPrice: catalogItem.sell_price||0,
+      count: 0, category: "zapchast"
+    };
+    setParts(prev=>[...prev, newItem]);
+    showToast(`${catalogItem.name} qo'shildi ✅`);
   };
 
-  const doBulkSave = () => {
-    const filled = bulkRows.filter(r=>r.brand && r.model && r.count);
-    if(filled.length===0) return;
-    let updatedParts = parts.map(normalizePart);
-    const newHistory = [];
-    filled.forEach(r => {
-      const fullName = `${r.brand} ${r.model} ${r.type}`;
-      const fullModel = `${r.brand} ${r.model}`;
-      const addCount = +r.count || 0;
-      const existIdx = updatedParts.findIndex(p=>
-        (p.brand||"")===r.brand &&
-        (p.model||"")=== fullModel &&
-        (p.type||"")===r.type
-      );
-      if(existIdx >= 0) {
-        updatedParts[existIdx] = {
-          ...updatedParts[existIdx],
-          count: updatedParts[existIdx].count + addCount,
-          buyPrice: +r.buyPrice || updatedParts[existIdx].buyPrice,
-          sellPrice: +r.sellPrice || updatedParts[existIdx].sellPrice,
-        };
-        newHistory.push({id:uid(),partId:updatedParts[existIdx].id,partName:fullName,count:addCount,buyPrice:+r.buyPrice||0,date:r.date||today(),type:"kirim"});
-      } else {
-        const newId = uid();
-        updatedParts.push({id:newId,name:fullName,model:fullModel,brand:r.brand,type:r.type,buyPrice:+r.buyPrice||0,sellPrice:+r.sellPrice||0,count:addCount});
-        newHistory.push({id:uid(),partId:newId,partName:fullName,count:addCount,buyPrice:+r.buyPrice||0,date:r.date||today(),type:"kirim"});
-      }
-    });
-    setParts(updatedParts);
-    setPartHistory(prev=>[...prev,...newHistory]);
-    setBulkModal(false);
-    setBulkRows([emptyRow(),emptyRow(),emptyRow()]);
-  };
+  // Katalog natijalari (parts_catalog dan)
+  const [catalogResults, setCatalogResults] = useState([]);
+  useEffect(()=>{
+    if(!selModel) { setCatalogResults([]); return; }
+    if(!SUPA_URL) return;
+    let url = `${SUPA_URL}/rest/v1/parts_catalog?model=eq.${encodeURIComponent(selModel)}&order=type.asc`;
+    if(selType) url += `&type=eq.${encodeURIComponent(selType)}`;
+    fetch(url, {headers:{"apikey":SUPA_KEY,"Authorization":`Bearer ${SUPA_KEY}`}})
+      .then(r=>r.json()).then(rows=>setCatalogResults(rows||[]))
+      .catch(()=>setCatalogResults([]));
+  },[selModel, selType]);
 
-  const incompleteRows = bulkRows.filter(r=>r.brand&&r.model&&!r.count);
-  const filledRows = bulkRows.filter(r=>r.brand&&r.model&&r.count);
-
-  // Sort arrow indicator
-  const SortArrow = ({ col }) => {
-    if(sortCol!==col) return <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.muted} strokeWidth="2" opacity="0.35"><path d="M7 15l5 5 5-5M7 9l5-5 5 5"/></svg>;
-    return sortDir==="asc"
-      ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.brand} strokeWidth="2.5"><path d="M7 15l5 5 5-5"/></svg>
-      : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.brand} strokeWidth="2.5"><path d="M7 9l5-5 5 5"/></svg>;
-  };
-
-  const thStyle = (col) => ({
-    padding:"10px 14px", textAlign:"left", fontSize:11, fontWeight:500,
-    background:T.surface, cursor:"pointer", userSelect:"none", whiteSpace:"nowrap",
-    color: sortCol===col ? T.brand : T.muted,
-  });
+  const inStock = (ci) => parts.some(p=>p.model===ci.model&&p.type===ci.type);
 
   return (
-    <div>
-      {/* TOP TOOLBAR */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12, flexWrap:"wrap", gap:8 }}>
-        <SearchBar value={search} onChange={setSearch} placeholder="Brend, model, tur..." />
-        <div style={{ display:"flex", gap:8 }}>
-          <Btn variant="ghost" onClick={exportExcel}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-            Excel
-          </Btn>
-          <Btn variant="default" onClick={()=>{ setBulkRows([emptyRow(),emptyRow(),emptyRow()]); setBulkModal(true); }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-            Tovar qo'shish
-          </Btn>
-          <Btn variant="primary" onClick={openAdd}>+ Tezkor qo’shish</Btn>
+    <div style={{padding:"16px 20px",maxWidth:1200,margin:"0 auto"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <div>
+          <h2 style={{margin:0,fontSize:18,fontWeight:700,color:T.text}}>📦 Zapchastlar</h2>
+          <div style={{fontSize:11,color:T.muted,marginTop:2}}>
+            Zaxira: {parts.filter(p=>p.category!=="aksessuар").length} ta | 
+            Katalog: 20,256 ta
+          </div>
         </div>
+        <button onClick={openAdd}
+          style={{padding:"8px 16px",borderRadius:8,background:T.brand,border:"none",
+            color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+          + Zapchast qo'shish
+        </button>
       </div>
 
-      {/* TYPE FILTER BAR */}
-      <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center", marginBottom:14, position:"relative" }}>
-        {visibleTypes.map(t=>(
-          <button key={t} onClick={()=>setFilterType(t)} style={{
-            padding:"6px 13px", borderRadius:8, fontSize:12, cursor:"pointer",
-            background:filterType===t?T.brand:T.card,
-            color:filterType===t?"#fff":T.muted,
-            border:`1px solid ${filterType===t?T.brand:T.border}`,
-            fontWeight:filterType===t?600:400,
-          }}>{t}</button>
-        ))}
-        {hiddenTypes.length>0 && (
-          <div style={{ position:"relative" }}>
-            <button onClick={()=>setTypeDropOpen(v=>!v)} style={{
-              padding:"6px 13px", borderRadius:8, fontSize:12, cursor:"pointer",
-              background: hiddenTypes.includes(filterType)?T.brand:T.card,
-              color: hiddenTypes.includes(filterType)?"#fff":T.muted,
-              border:`1px solid ${hiddenTypes.includes(filterType)?T.brand:T.border}`,
-              display:"flex", alignItems:"center", gap:5,
-            }}>
-              {hiddenTypes.includes(filterType) ? filterType : `+${hiddenTypes.length} ta`}
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg>
-            </button>
-            {typeDropOpen && (
-              <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, background:T.card, border:`1px solid ${T.borderStrong}`, borderRadius:10, padding:6, zIndex:100, minWidth:180, boxShadow:"0 8px 32px rgba(0,0,0,0.4)" }}>
-                {hiddenTypes.map(t=>(
-                  <div key={t} onClick={()=>{setFilterType(t);setTypeDropOpen(false);}} style={{
-                    padding:"7px 12px", borderRadius:7, fontSize:12, cursor:"pointer",
-                    color: filterType===t?T.brand:T.text,
-                    background: filterType===t?T.brandDim:"transparent",
-                    fontWeight: filterType===t?600:400,
-                  }}
-                  onMouseEnter={e=>e.currentTarget.style.background=T.surface}
-                  onMouseLeave={e=>e.currentTarget.style.background=filterType===t?T.brandDim:"transparent"}>
-                    {t}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {filterType!=="Hammasi" && (
-          <button onClick={()=>setFilterType("Hammasi")} style={{ padding:"6px 10px", borderRadius:8, fontSize:11, cursor:"pointer", background:"transparent", border:`1px solid ${T.border}`, color:T.muted }}>× Tozalash</button>
-        )}
-      </div>
+      {/* Qidiruv */}
+      <div style={{background:T.card,borderRadius:12,padding:16,marginBottom:16,
+        border:"1px solid "+T.border}}>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
+          <input value={search} onChange={e=>{setSearch(e.target.value);setSelBrand("");setSelModel("");setSelType("");}}
+            placeholder="🔍 Tovar nomi yoki model..."
+            style={{flex:1,minWidth:200,background:T.surface,border:"1px solid "+T.border,
+              borderRadius:8,padding:"8px 12px",color:T.text,fontSize:13,outline:"none"}}/>
+        </div>
 
-      {/* TABLE */}
-      <Card style={{ padding:0, overflow:"hidden" }}>
-        <table style={{ width:"100%", borderCollapse:"collapse" }}>
-          <thead>
-            <tr style={{ borderBottom:`1px solid ${T.border}` }}>
-              <th onClick={()=>handleSort("brand")} style={thStyle("brand")}>
-                <span style={{ display:"flex", alignItems:"center", gap:5 }}>Brend <SortArrow col="brand"/></span>
-              </th>
-              <th onClick={()=>handleSort("model")} style={thStyle("model")}>
-                <span style={{ display:"flex", alignItems:"center", gap:5 }}>Model <SortArrow col="model"/></span>
-              </th>
-              <th onClick={()=>handleSort("type")} style={thStyle("type")}>
-                <span style={{ display:"flex", alignItems:"center", gap:5 }}>Turi <SortArrow col="type"/></span>
-              </th>
-              <th onClick={()=>handleSort("buyPrice")} style={thStyle("buyPrice")}>
-                <span style={{ display:"flex", alignItems:"center", gap:5 }}>
-                  Kelgan
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  <SortArrow col="buyPrice"/>
-                </span>
-              </th>
-              <th onClick={()=>handleSort("sellPrice")} style={thStyle("sellPrice")}>
-                <span style={{ display:"flex", alignItems:"center", gap:5 }}>Sotish <SortArrow col="sellPrice"/></span>
-              </th>
-              <th onClick={()=>handleSort("profit")} style={thStyle("profit")}>
-                <span style={{ display:"flex", alignItems:"center", gap:5 }}>
-                  Foyda
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  <SortArrow col="profit"/>
-                </span>
-              </th>
-              <th onClick={()=>handleSort("count")} style={thStyle("count")}>
-                <span style={{ display:"flex", alignItems:"center", gap:5 }}>Soni <SortArrow col="count"/></span>
-              </th>
-              <th style={{ padding:"10px 14px", textAlign:"left", fontSize:11, color:T.muted, fontWeight:500, background:T.surface }}>Amallar</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pagedFiltered.map(p=>{
-              const shown = !!revealedPrices[p.id];
-              const modelOnly = p.model?.replace(p.brand+" ","") || p.model;
-              return (
-                <tr key={p.id} style={{ borderBottom:`1px solid ${T.border}` }}>
-                  {/* BREND */}
-                  <td style={{ padding:"10px 14px", fontSize:13, color:T.text, fontWeight:700 }}>{p.brand||p.name}</td>
-                  {/* MODEL */}
-                  <td style={{ padding:"10px 14px", fontSize:12, color:T.muted }}>{modelOnly}</td>
-                  {/* TURI */}
-                  <td style={{ padding:"10px 14px" }}><Badge>{p.type}</Badge></td>
-                  {/* KELGAN — yopiq */}
-                  <td style={{ padding:"10px 14px" }}>
-                    <div onClick={()=>togglePrice(p.id)} style={{ display:"inline-flex", alignItems:"center", gap:6, cursor:"pointer", userSelect:"none" }}>
-                      {shown
-                        ? <span style={{ fontSize:13, color:T.muted, fontWeight:500 }}>{fmt(p.buyPrice)}</span>
-                        : <span style={{ fontSize:12, color:T.muted, background:T.subtle, padding:"3px 10px", borderRadius:6, letterSpacing:2 }}>••••••</span>
-                      }
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.muted} strokeWidth="2" strokeLinecap="round">
-                        {shown ? <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
-                          : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>}
-                      </svg>
-                    </div>
-                  </td>
-                  {/* SOTISH */}
-                  <td style={{ padding:"10px 14px", fontSize:13, color:T.text }}>{fmt(p.sellPrice)}</td>
-                  {/* FOYDA — yopiq */}
-                  <td style={{ padding:"10px 14px" }}>
-                    <div onClick={()=>togglePrice(p.id)} style={{ display:"inline-flex", alignItems:"center", gap:6, cursor:"pointer", userSelect:"none" }}>
-                      {shown
-                        ? <span style={{ fontSize:13, color:T.success, fontWeight:700 }}>+{fmt(p.sellPrice-p.buyPrice)}</span>
-                        : <span style={{ fontSize:12, color:T.success, background:T.successDim, padding:"3px 10px", borderRadius:6, letterSpacing:2, opacity:0.6 }}>••••••</span>
-                      }
-                    </div>
-                  </td>
-                  {/* SONI — S va Q tugmalari */}
-                  <td style={{ padding:"10px 14px" }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-                      <button title="Sotildi (−1)" onClick={()=>openSale(p)} style={{ width:26,height:26,borderRadius:6,background:T.brandDim,border:`1px solid ${T.brand}44`,color:T.brand,cursor:"pointer",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center" }}>S</button>
-                      <span style={{ fontSize:13, fontWeight:800, color:stockColor(p.count), minWidth:28, textAlign:"center", background:stockBg(p.count), padding:"2px 8px", borderRadius:6 }}>{p.count}</span>
-                      <button title="Qaytdi (+1)" onClick={()=>openReturn(p)} style={{ width:26,height:26,borderRadius:6,background:T.warningDim,border:`1px solid rgba(245,158,11,0.3)`,color:T.warning,cursor:"pointer",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center" }}>Q</button>
-                    </div>
-                  </td>
-                  {/* AMALLAR */}
-                  <td style={{ padding:"10px 14px" }}>
-                    <div style={{ display:"flex", gap:5 }}>
-                      <Btn small onClick={()=>setCardPart(p)}>
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                        Karta
-                      </Btn>
-                      <Btn small onClick={()=>openEdit(p)}>Tahrir</Btn>
-                      <Btn small variant="danger" onClick={()=>setDeleteConfirm({id:p.id,name:p.name||p.brand})}>O’chir</Btn>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {totalPages > 1 && (
-          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"12px",borderTop:"1px solid "+T.border}}>
-            <button onClick={()=>setZPage(0)} disabled={zPage===0} style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+T.border,background:T.surface,color:T.text,cursor:"pointer",opacity:zPage===0?0.4:1}}>«</button>
-            <button onClick={()=>setZPage(p=>Math.max(0,p-1))} disabled={zPage===0} style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+T.border,background:T.surface,color:T.text,cursor:"pointer",opacity:zPage===0?0.4:1}}>‹</button>
-            <span style={{color:T.muted,fontSize:12}}>{zPage+1} / {totalPages} ({filtered.length} ta)</span>
-            <button onClick={()=>setZPage(p=>Math.min(totalPages-1,p+1))} disabled={zPage>=totalPages-1} style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+T.border,background:T.surface,color:T.text,cursor:"pointer",opacity:zPage>=totalPages-1?0.4:1}}>›</button>
-            <button onClick={()=>setZPage(totalPages-1)} disabled={zPage>=totalPages-1} style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+T.border,background:T.surface,color:T.text,cursor:"pointer",opacity:zPage>=totalPages-1?0.4:1}}>»</button>
-          </div>
-        )}
-        {filtered.length===0 && <div style={{ padding:32, textAlign:"center", color:T.muted, fontSize:13 }}>Zapchastlar topilmadi</div>}
-      </Card>
-
-      {/* DELETE CONFIRM */}
-      <ConfirmDelete
-        open={!!deleteConfirm}
-        onClose={()=>setDeleteConfirm(null)}
-        onConfirm={doDelete}
-        itemName={deleteConfirm?.name||""}
-      />
-
-      {/* SOTILDI MODAL */}
-      <Modal open={saleModal} onClose={()=>setSaleModal(false)} title="Zapchast sotildi">
-        {saleItem && (
-          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-            <div style={{ background:T.card, borderRadius:10, padding:"14px 16px", border:`1px solid ${T.border}` }}>
-              <div style={{ fontSize:15, fontWeight:700, color:T.text }}>{saleItem.brand} {saleItem.model?.replace((saleItem.brand||"")+" ","")}</div>
-              <div style={{ fontSize:12, color:T.muted, marginTop:4, display:"flex", gap:8, alignItems:"center" }}>
-                <Badge>{saleItem.type}</Badge>
-                <span>Mavjud: <strong style={{ color:stockColor(saleItem.count) }}>{saleItem.count} ta</strong></span>
-              </div>
-            </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              <Inp label="Miqdor (dona) *" value={saleQty} onChange={setSaleQty} type="number" />
-              <Inp label="Sotish narxi (so'm)" value={salePrice} onChange={setSalePrice} type="number" />
-            </div>
-            {+saleQty>0 && +salePrice>0 && (
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                <div style={{ background:T.successDim, borderRadius:8, padding:"10px 14px" }}>
-                  <div style={{ fontSize:10, color:T.success, fontWeight:600, marginBottom:3 }}>JAMI SUMMA</div>
-                  <div style={{ fontSize:16, fontWeight:800, color:T.success }}>{fmt(+salePrice * +saleQty)} so’m</div>
-                </div>
-                <div style={{ background:T.brandDim, borderRadius:8, padding:"10px 14px" }}>
-                  <div style={{ fontSize:10, color:T.brand, fontWeight:600, marginBottom:3 }}>FOYDA</div>
-                  <div style={{ fontSize:16, fontWeight:800, color:T.brand }}>+{fmt((+salePrice - saleItem.buyPrice) * +saleQty)} so’m</div>
-                </div>
-              </div>
-            )}
-            <div style={{ display:"flex", gap:10 }}>
-              <Btn variant="primary" onClick={doSale} style={{ flex:1 }}>✓ Sotildi</Btn>
-              <Btn onClick={()=>setSaleModal(false)} style={{ flex:1 }}>Bekor</Btn>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* QAYTDI MODAL */}
-      <Modal open={returnModal} onClose={()=>setReturnModal(false)} title="Tovar qaytdi">
-        {returnItem && (
-          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-            <div style={{ background:T.warningDim, border:`1px solid rgba(245,158,11,0.25)`, borderRadius:10, padding:"12px 14px" }}>
-              <div style={{ fontSize:14, fontWeight:700, color:T.text }}>{returnItem.name}</div>
-              <div style={{ fontSize:12, color:T.warning, marginTop:3 }}>Qaytgan tovar zaxiraga qo’shiladi va savod bekor qilinadi</div>
-            </div>
-            <Inp label="Qaytgan miqdor (dona) *" value={returnQty} onChange={setReturnQty} type="number" />
-            <Inp label="Qaytish sababi (izoh)" value={returnNote} onChange={setReturnNote} placeholder="Sifatsiz, boshqa model kerak..." />
-            <div style={{ display:"flex", gap:10 }}>
-              <Btn style={{ flex:1, background:T.warningDim, color:T.warning, border:`1px solid rgba(245,158,11,0.3)` }} onClick={doReturn}>↩ Qaytarish</Btn>
-              <Btn onClick={()=>setReturnModal(false)} style={{ flex:1 }}>Bekor</Btn>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* TOVAR KARTASI MODAL */}
-      {cardPart && (() => {
-        const hist = [...partHistory].filter(h=>h.partId===cardPart.id).reverse();
-        const priceChanges = [];
-        let lastPrice = null;
-        [...hist].reverse().forEach(h => {
-          if(h.buyPrice && h.buyPrice !== lastPrice) {
-            priceChanges.push({ date:h.date, price:h.buyPrice });
-            lastPrice = h.buyPrice;
-          }
-        });
-        const totalIn = hist.reduce((s,h)=>s+(h.count||0),0);
-        const modelOnly = cardPart.model?.replace((cardPart.brand||"")+" ","") || cardPart.model;
-        return (
-          <div style={{ position:"fixed", inset:0, zIndex:250, background:"rgba(0,0,0,0.82)", display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-            <div style={{ background:T.surface, border:`1px solid ${T.borderStrong}`, borderRadius:18, width:"100%", maxWidth:580, maxHeight:"88vh", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-              {/* Header */}
-              <div style={{ padding:"20px 24px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"flex-start", justifyContent:"space-between" }}>
-                <div>
-                  <div style={{ fontSize:11, color:T.muted, fontWeight:500, marginBottom:4, letterSpacing:0.5 }}>TOVAR KARTASI</div>
-                  <div style={{ fontSize:18, fontWeight:800, color:T.text }}>{cardPart.brand} {modelOnly}</div>
-                  <div style={{ marginTop:5 }}><Badge color={T.brand} bg={T.brandDim}>{cardPart.type}</Badge></div>
-                </div>
-                <button onClick={()=>setCardPart(null)} style={{ background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.muted,cursor:"pointer",fontSize:20,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center" }}>×</button>
-              </div>
-
-              <div style={{ flex:1, overflowY:"auto", padding:"20px 24px" }}>
-                {/* Stats row */}
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:20 }}>
-                  {[
-                    { label:"Joriy zaxira", val:`${cardPart.count} ta`, color:stockColor(cardPart.count), bg:stockBg(cardPart.count) },
-                    { label:"Jami kirim", val:`${totalIn} ta`, color:T.brand, bg:T.brandDim },
-                    { label:"Sotish narxi", val:`${fmt(cardPart.sellPrice)}`, color:T.text, bg:T.subtle },
-                    { label:"Foyda/dona", val:`+${fmt((cardPart.sellPrice||0)-(cardPart.buyPrice||0))}`, color:T.success, bg:T.successDim },
-                  ].map(s=>(
-                    <div key={s.label} style={{ background:s.bg, borderRadius:10, padding:"12px 14px" }}>
-                      <div style={{ fontSize:10, color:s.color, fontWeight:600, marginBottom:4, opacity:0.8 }}>{s.label.toUpperCase()}</div>
-                      <div style={{ fontSize:16, fontWeight:800, color:s.color }}>{s.val}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Narx o'zgartirish tarixi */}
-                <div style={{ marginBottom:20 }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.brand} strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                    Narx o'zgartirish tarixi (kelgan narx)
-                  </div>
-                  {priceChanges.length===0 ? (
-                    <div style={{ color:T.muted, fontSize:13, padding:"12px 0" }}>Narx o’zgarishi qayd etilmagan</div>
-                  ) : (
-                    <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
-                      {priceChanges.map((pc,i)=>{
-                        const prev = priceChanges[i-1];
-                        const diff = prev ? pc.price - prev.price : 0;
-                        const pct = prev ? ((diff/prev.price)*100).toFixed(1) : 0;
-                        return (
-                          <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"9px 0", borderBottom:`1px solid ${T.border}` }}>
-                            <div style={{ fontSize:11, color:T.muted, minWidth:82 }}>{pc.date}</div>
-                            <div style={{ fontSize:14, fontWeight:700, color:T.text }}>{fmt(pc.price)} so’m</div>
-                            {diff!==0 && (
-                              <div style={{ fontSize:12, fontWeight:600, color:diff>0?T.danger:T.success, background:diff>0?T.dangerDim:T.successDim, padding:"2px 8px", borderRadius:6 }}>
-                                {diff>0?"+":""}{fmt(diff)} ({diff>0?"+":""}{pct}%)
-                              </div>
-                            )}
-                            {i===priceChanges.length-1 && <Badge color={T.brand} bg={T.brandDim}>Joriy</Badge>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Kirim tarixi */}
-                <div>
-                  <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.success} strokeWidth="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-                    Kirim tarixi
-                  </div>
-                  {hist.length===0 ? (
-                    <div style={{ color:T.muted, fontSize:13 }}>Kirim tarixi yo’q</div>
-                  ) : (
-                    hist.map((h,i)=>(
-                      <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"8px 0", borderBottom:`1px solid ${T.border}` }}>
-                        <div style={{ fontSize:11, color:T.muted, minWidth:82 }}>{h.date}</div>
-                        <div style={{ flex:1, fontSize:13, color:T.text, fontWeight:600 }}>+{h.count} ta</div>
-                        <div style={{ fontSize:12, color:T.muted }}>{fmt(h.buyPrice)} so’m/dona</div>
-                        <div style={{ fontSize:12, color:T.success, fontWeight:600 }}>Jami: {fmt(h.buyPrice*h.count)}</div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div style={{ padding:"14px 24px", borderTop:`1px solid ${T.border}`, display:"flex", gap:10 }}>
-                <Btn variant="primary" onClick={()=>{setCardPart(null);openEdit(cardPart);}} style={{ flex:1 }}>Tahrirlash</Btn>
-                <Btn onClick={()=>setCardPart(null)} style={{ flex:1 }}>Yopish</Btn>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* ADD / EDIT MODAL */}
-      <Modal open={modal} onClose={()=>setModal(false)} title={editId?"Zapchastni tahrirlash":"Yangi zapchast qo'shish"}>
-        <div style={{ display:"flex", flexDirection:"column", gap:13 }}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-            <div>
-              <div style={{ fontSize:11, color:T.muted, marginBottom:5, fontWeight:500 }}>BREND *</div>
-              <select value={form.brand} onChange={e=>sf("brand")(e.target.value)}
-                style={{ width:"100%", background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:"8px 12px", color:T.text, fontSize:13, outline:"none" }}>
-                {BRANDS.map(b=><option key={b.name} value={b.name}>{b.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{ fontSize:11, color:T.muted, marginBottom:5, fontWeight:500 }}>MODEL *</div>
-              <select value={form.model} onChange={e=>sf("model")(e.target.value)}
-                style={{ width:"100%", background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:"8px 12px", color:form.model?T.text:T.muted, fontSize:13, outline:"none" }}>
-                <option value="">— Modelni tanlang</option>
-                {(BRAND_MODELS[form.brand]||[]).map(m=><option key={m} value={m}>{m}</option>)}
-              </select>
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize:11, color:T.muted, marginBottom:5, fontWeight:500 }}>ZAPCHAST TURI *</div>
-            <select value={form.type} onChange={e=>sf("type")(e.target.value)}
-              style={{ width:"100%", background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:"8px 12px", color:T.text, fontSize:13, outline:"none" }}>
-              {PART_TYPES.map(t=><option key={t}>{t}</option>)}
+        {/* Brend → Model → Tur */}
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          {/* Brendlar */}
+          <div style={{flex:1,minWidth:140}}>
+            <div style={{fontSize:10,color:T.muted,marginBottom:4}}>BREND</div>
+            <select value={selBrand} onChange={e=>setSelBrand(e.target.value)}
+              style={{width:"100%",background:T.surface,border:"1px solid "+T.border,
+                borderRadius:8,padding:"8px 10px",color:T.text,fontSize:13,outline:"none"}}>
+              <option value="">— tanlang</option>
+              {brands.map(b=><option key={b} value={b}>{b}</option>)}
             </select>
           </div>
-          {form.brand && form.model && (
-            <div style={{ background:T.brandDim, border:`1px solid ${T.brand}33`, borderRadius:8, padding:"8px 14px", fontSize:12, color:T.brandLight }}>
-              Tovar nomi: <strong>{form.brand} {form.model} {form.type}</strong>
+
+          {/* Modellar */}
+          {selBrand && (
+            <div style={{flex:2,minWidth:160}}>
+              <div style={{fontSize:10,color:T.muted,marginBottom:4}}>MODEL</div>
+              <select value={selModel} onChange={e=>setSelModel(e.target.value)}
+                style={{width:"100%",background:T.surface,border:"1px solid "+T.border,
+                  borderRadius:8,padding:"8px 10px",color:T.text,fontSize:13,outline:"none"}}>
+                <option value="">— tanlang</option>
+                {models.map(m=><option key={m} value={m}>{m}</option>)}
+              </select>
             </div>
           )}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-            <Inp label="Kelgan narxi (so'm)" value={form.buyPrice} onChange={sf("buyPrice")} type="number" />
-            <Inp label="Sotish narxi (so'm)" value={form.sellPrice} onChange={sf("sellPrice")} type="number" />
+
+          {/* Turlar */}
+          {selModel && (
+            <div style={{flex:1,minWidth:140}}>
+              <div style={{fontSize:10,color:T.muted,marginBottom:4}}>TUR</div>
+              <select value={selType} onChange={e=>setSelType(e.target.value)}
+                style={{width:"100%",background:T.surface,border:"1px solid "+T.border,
+                  borderRadius:8,padding:"8px 10px",color:T.text,fontSize:13,outline:"none"}}>
+                <option value="">— hammasi</option>
+                {types.map(t=><option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Katalog natijalari */}
+      {selModel && catalogResults.length>0 && (
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:11,color:T.muted,marginBottom:8,fontWeight:600}}>
+            📋 KATALOG — {selModel} {selType||"(barcha turlar)"}
           </div>
-          {+form.buyPrice>0 && +form.sellPrice>0 && (
-            <div style={{ background:T.successDim, border:`1px solid ${T.success}33`, borderRadius:8, padding:"7px 14px", fontSize:12, color:T.success }}>
-              Foyda: +{fmt((+form.sellPrice||0)-(+form.buyPrice||0))} so’m
-            </div>
-          )}
-          {editId ? (
-            <>
-              <div style={{ background:T.bg, borderRadius:10, padding:"12px 14px", border:`1px solid ${T.border}` }}>
-                <div style={{ fontSize:11, color:T.brand, fontWeight:600, marginBottom:10 }}>📦 Yangi tovar keldi (kirim)</div>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-                  <Inp label="Kelgan soni" value={form.newArrivalCount} onChange={sf("newArrivalCount")} type="number" placeholder="0" />
-                  <Inp label="Sana" value={form.newArrivalDate} onChange={sf("newArrivalDate")} type="date" />
-                </div>
-                {form.newArrivalCount && +form.newArrivalCount>0 && (
-                  <div style={{ marginTop:10, fontSize:12, color:T.success, background:T.successDim, padding:"6px 10px", borderRadius:7 }}>
-                    ✓ Mavjud songa +{form.newArrivalCount} ta qo'shiladi → jami: {(parts.find(p=>p.id===editId)?.count||0)+(+form.newArrivalCount)} ta
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:8}}>
+            {catalogResults.map((ci,i)=>{
+              const has = inStock(ci);
+              const stockItem = parts.find(p=>p.model===ci.model&&p.type===ci.type);
+              return (
+                <div key={i} style={{background:T.card,border:"1px solid "+(has?T.success+"44":T.border),
+                  borderRadius:10,padding:"12px 14px",display:"flex",
+                  justifyContent:"space-between",alignItems:"center",gap:8}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:600,color:T.text,
+                      whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                      {ci.type}
+                    </div>
+                    <div style={{fontSize:11,color:T.muted,marginTop:2}}>
+                      {ci.sell_price>0 ? `${fmt(ci.sell_price)} so'm` : "Narx belgilanmagan"}
+                    </div>
+                    {has && <div style={{fontSize:10,color:T.success,marginTop:2}}>
+                      ✅ Zaxira: {stockItem?.count||0} ta
+                    </div>}
                   </div>
-                )}
-              </div>
-              <Inp label="Joriy soni (qo'lda o'zgartirish)" value={form.count} onChange={sf("count")} type="number" />
-            </>
-          ) : (
-            <Inp label="Boshlang'ich soni *" value={form.count} onChange={sf("count")} type="number" />
-          )}
-          <div style={{ display:"flex", gap:10, marginTop:4 }}>
-            <Btn variant="primary" onClick={doSave} style={{ flex:1 }}>{editId?"Saqlash":"Qo'shish"}</Btn>
-            <Btn onClick={()=>setModal(false)} style={{ flex:1 }}>Bekor</Btn>
+                  {!has ? (
+                    <button onClick={()=>addFromCatalog(ci)}
+                      style={{padding:"5px 10px",borderRadius:6,background:T.brand,
+                        border:"none",color:"#fff",fontSize:11,cursor:"pointer",
+                        whiteSpace:"nowrap",flexShrink:0}}>
+                      + Qo'shish
+                    </button>
+                  ) : (
+                    <button onClick={()=>openEdit(stockItem)}
+                      style={{padding:"5px 10px",borderRadius:6,background:T.surface,
+                        border:"1px solid "+T.border,color:T.text,fontSize:11,cursor:"pointer",
+                        whiteSpace:"nowrap",flexShrink:0}}>
+                      ✏️ Tahrir
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
-      </Modal>
+      )}
 
-      {/* BULK ADD — FULL REDESIGN */}
-      {bulkModal && (
-        <div style={{ position:"fixed", inset:0, zIndex:200, background:"rgba(0,0,0,0.88)", display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-          <div style={{ background:T.surface, border:`1px solid ${T.borderStrong}`, borderRadius:18, width:"100%", maxWidth:900, maxHeight:"92vh", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      {/* Do'kon zaxirasi */}
+      {(results.length>0 || search) && (
+        <div>
+          <div style={{fontSize:11,color:T.muted,marginBottom:8,fontWeight:600}}>
+            🏪 DO'KON ZAXIRASI — {results.length} ta
+          </div>
+          <div style={{background:T.card,borderRadius:12,border:"1px solid "+T.border,overflow:"hidden"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead>
+                <tr style={{background:T.surface}}>
+                  {["Nomi","Tur","Soni","Sotuv narxi","Xarid narxi",""].map(h=>(
+                    <th key={h} style={{padding:"10px 14px",textAlign:"left",
+                      fontSize:11,color:T.muted,fontWeight:500,whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {results.map(p=>(
+                  <tr key={p.id} style={{borderTop:"1px solid "+T.border}}>
+                    <td style={{padding:"10px 14px",fontSize:12,color:T.text,maxWidth:200}}>
+                      <div style={{fontWeight:500}}>{p.name}</div>
+                      {p.count<=0 && <div style={{fontSize:10,color:T.danger}}>Tugadi</div>}
+                    </td>
+                    <td style={{padding:"10px 14px",fontSize:11,color:T.muted}}>{p.type||"—"}</td>
+                    <td style={{padding:"10px 14px"}}>
+                      <span style={{fontSize:13,fontWeight:700,
+                        color:p.count<=0?T.danger:p.count<=5?T.warning:T.success}}>
+                        {p.count}
+                      </span>
+                    </td>
+                    <td style={{padding:"10px 14px",fontSize:12,color:T.text,fontWeight:600}}>
+                      {fmt(p.sellPrice)} so'm
+                    </td>
+                    <td style={{padding:"10px 14px",fontSize:12,color:T.muted}}>
+                      {fmt(p.buyPrice)} so'm
+                    </td>
+                    <td style={{padding:"10px 14px"}}>
+                      <div style={{display:"flex",gap:6}}>
+                        <button onClick={()=>openEdit(p)}
+                          style={{padding:"4px 8px",borderRadius:6,background:T.surface,
+                            border:"1px solid "+T.border,color:T.text,fontSize:11,cursor:"pointer"}}>✏️</button>
+                        <button onClick={()=>setDelConfirm(p.id)}
+                          style={{padding:"4px 8px",borderRadius:6,background:T.dangerDim,
+                            border:"none",color:T.danger,fontSize:11,cursor:"pointer"}}>🗑</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
-            {/* HEADER */}
-            <div style={{ padding:"20px 28px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
-              <div>
-                <div style={{ fontSize:17, fontWeight:800, color:T.text }}>Yangi tovarlar qo’shish</div>
-                <div style={{ fontSize:12, color:T.muted, marginTop:3 }}>Har bir kartochkaga tovar ma’lumotlarini to’ldiring</div>
+      {/* Bo'sh holat */}
+      {!selBrand && !search && results.length===0 && (
+        <div style={{textAlign:"center",padding:"60px 20px",color:T.muted}}>
+          <div style={{fontSize:48,marginBottom:12}}>📦</div>
+          <div style={{fontSize:15,fontWeight:600,color:T.text,marginBottom:8}}>
+            Brend tanlang yoki qidiring
+          </div>
+          <div style={{fontSize:12}}>
+            Yuqoridan brend → model → tur tanlab zapchastlarni ko'ring
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Modal */}
+      {modal && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",
+          display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
+          <div style={{background:T.card,borderRadius:16,padding:24,width:360,
+            border:"1px solid "+T.border,maxHeight:"90vh",overflow:"auto"}}>
+            <h3 style={{margin:"0 0 16px",fontSize:15,color:T.text}}>
+              {editItem?"✏️ Tahrirlash":"➕ Yangi zapchast"}
+            </h3>
+            {[
+              {label:"Nomi",key:"name",placeholder:"Samsung A12 Ekran"},
+              {label:"Model",key:"model",placeholder:"Samsung Galaxy A12"},
+              {label:"Tur",key:"type",placeholder:"Ekran (AMOLED Original)"},
+              {label:"Brend",key:"brand",placeholder:"Samsung"},
+              {label:"Xarid narxi",key:"buyPrice",type:"number",placeholder:"120000"},
+              {label:"Sotuv narxi",key:"sellPrice",type:"number",placeholder:"220000"},
+              {label:"Soni",key:"count",type:"number",placeholder:"0"},
+            ].map(f=>(
+              <div key={f.key} style={{marginBottom:10}}>
+                <div style={{fontSize:11,color:T.muted,marginBottom:4}}>{f.label}</div>
+                <input type={f.type||"text"} value={form[f.key]}
+                  onChange={e=>setForm(prev=>({...prev,[f.key]:e.target.value}))}
+                  placeholder={f.placeholder}
+                  style={{width:"100%",background:T.surface,border:"1px solid "+T.border,
+                    borderRadius:8,padding:"8px 12px",color:T.text,fontSize:13,
+                    outline:"none",boxSizing:"border-box"}}/>
               </div>
-              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                <div style={{ fontSize:12, color:T.muted, background:T.card, padding:"5px 12px", borderRadius:8, border:`1px solid ${T.border}` }}>
-                  {filledRows.length} / {bulkRows.length} tayyor
-                </div>
-                <button onClick={()=>setBulkModal(false)} style={{ width:32, height:32, borderRadius:8, background:T.card, border:`1px solid ${T.border}`, color:T.muted, cursor:"pointer", fontSize:18, display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
-              </div>
-            </div>
-
-            {/* CARDS SCROLL AREA */}
-            <div style={{ flex:1, overflowY:"auto", padding:"20px 28px", display:"flex", flexDirection:"column", gap:12 }}>
-              {bulkRows.map((row, i) => {
-                const filled = row.brand && row.model && row.count;
-                const incomplete = row.brand && row.model && !row.count;
-                const profit = (+row.sellPrice||0) - (+row.buyPrice||0);
-                const modelList = BRAND_MODELS[row.brand] || [];
-                const displayName = row.model ? `${row.brand} ${row.model}` : row.brand;
-                return (
-                  <div key={row.id} style={{
-                    background: T.card,
-                    border: `1px solid ${filled ? "rgba(34,197,94,0.25)" : incomplete ? "rgba(245,158,11,0.25)" : T.border}`,
-                    borderRadius: 12,
-                    padding: "16px 20px",
-                    transition: "border 0.2s",
-                  }}>
-                    {/* Row header */}
-                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <div style={{ width:26, height:26, borderRadius:7, background: filled ? T.successDim : incomplete ? T.warningDim : T.subtle, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, color: filled ? T.success : incomplete ? T.warning : T.muted }}>
-                          {filled ? "✓" : i+1}
-                        </div>
-                        <span style={{ fontSize:13, fontWeight:600, color: filled ? T.success : incomplete ? T.warning : T.muted }}>
-                          {filled ? `${displayName}  -  ${row.type}` : incomplete ? "Soni kiritilmagan!" : `${i+1}-tovar`}
-                        </span>
-                        
-                      </div>
-                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        {filled && profit > 0 && (
-                          <span style={{ fontSize:12, color:T.success, background:T.successDim, padding:"3px 10px", borderRadius:6, fontWeight:600 }}>
-                            Foyda: +{fmt(profit)} so’m
-                          </span>
-                        )}
-                        <button onClick={()=>setBulkRows(prev=>prev.filter((_,idx)=>idx!==i))} style={{ width:26, height:26, borderRadius:6, background:"transparent", border:`1px solid ${T.border}`, color:T.muted, cursor:"pointer", fontSize:14, display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
-                      </div>
-                    </div>
-
-                    {/* Fields — 2 rows */}
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1.2fr", gap:10, marginBottom:10 }}>
-                      {/* BREND */}
-                      <div>
-                        <div style={{ fontSize:10, color:T.muted, marginBottom:5, fontWeight:600, letterSpacing:0.5 }}>BREND *</div>
-                        <select value={row.brand} onChange={e=>setBR(i,"brand",e.target.value)}
-                          style={{ width:"100%", background:T.surface, border:`1px solid ${row.brand?T.brand+"55":T.border}`, borderRadius:8, padding:"9px 11px", color:T.text, fontSize:13, outline:"none", boxSizing:"border-box" }}>
-                          {BRANDS.map(b=><option key={b.name} value={b.name}>{b.name}</option>)}
-                        </select>
-                      </div>
-                      {/* MODEL */}
-                      <div>
-                        <div style={{ fontSize:10, color:T.muted, marginBottom:5, fontWeight:600, letterSpacing:0.5 }}>MODEL *</div>
-                        <select value={row.model} onChange={e=>setBR(i,"model",e.target.value)}
-                          style={{ width:"100%", background:T.surface, border:`1px solid ${row.model?T.brand+"55":T.border}`, borderRadius:8, padding:"9px 11px", color:row.model?T.text:T.muted, fontSize:13, outline:"none", boxSizing:"border-box" }}>
-                          <option value="">— Modelni tanlang</option>
-                          {modelList.map(m=><option key={m} value={m}>{m}</option>)}
-                        </select>
-                      </div>
-                      {/* TURI */}
-                      <div>
-                        <div style={{ fontSize:10, color:T.muted, marginBottom:5, fontWeight:600, letterSpacing:0.5 }}>ZAPCHAST TURI *</div>
-                        <select value={row.type} onChange={e=>setBR(i,"type",e.target.value)}
-                          style={{ width:"100%", background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 11px", color:T.text, fontSize:13, outline:"none", boxSizing:"border-box" }}>
-                          {PART_TYPES.map(t=><option key={t}>{t}</option>)}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 0.7fr 1fr", gap:10 }}>
-                      {/* Kelgan narx */}
-                      <div>
-                        <div style={{ fontSize:10, color:T.muted, marginBottom:5, fontWeight:600, letterSpacing:0.5 }}>KELGAN NARX (so’m)</div>
-                        <input type="number" value={row.buyPrice} onChange={e=>setBR(i,"buyPrice",e.target.value)} placeholder="0"
-                          style={{ width:"100%", background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 11px", color:T.text, fontSize:13, outline:"none", boxSizing:"border-box" }} />
-                      </div>
-                      {/* Sotish narx */}
-                      <div>
-                        <div style={{ fontSize:10, color:T.muted, marginBottom:5, fontWeight:600, letterSpacing:0.5 }}>SOTISH NARX (so’m)</div>
-                        <input type="number" value={row.sellPrice} onChange={e=>setBR(i,"sellPrice",e.target.value)} placeholder="0"
-                          style={{ width:"100%", background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 11px", color:T.text, fontSize:13, outline:"none", boxSizing:"border-box" }} />
-                      </div>
-                      {/* Soni */}
-                      <div>
-                        <div style={{ fontSize:10, color:incomplete?T.warning:T.muted, marginBottom:5, fontWeight:600, letterSpacing:0.5 }}>SONI *</div>
-                        <input type="number" value={row.count} onChange={e=>setBR(i,"count",e.target.value)} placeholder="0"
-                          style={{ width:"100%", background:T.surface, border:`1px solid ${incomplete?"rgba(245,158,11,0.5)":row.count?T.success+"55":T.border}`, borderRadius:8, padding:"9px 11px", color:T.text, fontSize:13, outline:"none", boxSizing:"border-box", fontWeight:row.count?"700":"400" }} />
-                      </div>
-                      {/* Sana */}
-                      <div>
-                        <div style={{ fontSize:10, color:T.muted, marginBottom:5, fontWeight:600, letterSpacing:0.5 }}>KELGAN SANA</div>
-                        <input type="date" value={row.date} onChange={e=>setBR(i,"date",e.target.value)}
-                          style={{ width:"100%", background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 11px", color:T.text, fontSize:13, outline:"none", boxSizing:"border-box" }} />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Add row button */}
-              <button onClick={()=>setBulkRows(prev=>[...prev,emptyRow()])}
-                style={{ width:"100%", padding:"13px", borderRadius:12, background:"transparent", border:`1.5px dashed ${T.border}`, color:T.muted, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7, transition:"all 0.15s" }}
-                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.brand;e.currentTarget.style.color=T.brand;}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
-                Yangi qator qo'shish
-              </button>
-            </div>
-
-            {/* FOOTER */}
-            <div style={{ padding:"16px 28px", borderTop:`1px solid ${T.border}`, flexShrink:0, background:T.bg }}>
-              {incompleteRows.length>0 && (
-                <div style={{ background:T.warningDim, border:`1px solid rgba(245,158,11,0.2)`, borderRadius:9, padding:"9px 16px", fontSize:12, color:T.warning, marginBottom:12, display:"flex", alignItems:"center", gap:8 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                  <span><strong>{incompleteRows.length} ta tovar</strong> to’ldirilmagan — ular saqlanmaydi: {incompleteRows.map(r=>`«${r.name}»`).join(", ")}</span>
-                </div>
-              )}
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                <div style={{ fontSize:13, color:T.muted }}>
-                  {filledRows.length>0
-                    ? <span style={{ color:T.success, fontWeight:600 }}>✓ {filledRows.length} ta tovar saqlanishga tayyor</span>
-                    : "Hech bir tovar to'ldirilmagan"}
-                </div>
-                <div style={{ display:"flex", gap:10 }}>
-                  <Btn onClick={()=>setBulkModal(false)}>Bekor qilish</Btn>
-                  <Btn variant="primary" onClick={doBulkSave} style={{ minWidth:180, opacity: filledRows.length===0?0.5:1 }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                    {filledRows.length>0 ? `${filledRows.length} tovarni saqlash` : "Saqlash"}
-                  </Btn>
-                </div>
-              </div>
+            ))}
+            <div style={{display:"flex",gap:10,marginTop:16}}>
+              <button onClick={()=>setModal(false)}
+                style={{flex:1,padding:"10px",borderRadius:8,background:T.surface,
+                  border:"1px solid "+T.border,color:T.muted,cursor:"pointer"}}>Bekor</button>
+              <button onClick={saveItem}
+                style={{flex:1,padding:"10px",borderRadius:8,background:T.brand,
+                  border:"none",color:"#fff",fontWeight:600,cursor:"pointer"}}>Saqlash</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {delConfirm && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",
+          display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
+          <div style={{background:T.card,borderRadius:16,padding:24,width:300,
+            border:"1px solid "+T.border,textAlign:"center"}}>
+            <div style={{fontSize:32,marginBottom:12}}>🗑️</div>
+            <div style={{fontSize:14,color:T.text,marginBottom:16}}>O'chirishni tasdiqlaysizmi?</div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setDelConfirm(null)}
+                style={{flex:1,padding:"10px",borderRadius:8,background:T.surface,
+                  border:"1px solid "+T.border,color:T.muted,cursor:"pointer"}}>Bekor</button>
+              <button onClick={()=>deleteItem(delConfirm)}
+                style={{flex:1,padding:"10px",borderRadius:8,background:T.danger,
+                  border:"none",color:"#fff",fontWeight:600,cursor:"pointer"}}>O'chirish</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div style={{position:"fixed",bottom:20,right:20,background:toast.ok?T.success:T.danger,
+          color:"#fff",padding:"10px 18px",borderRadius:10,fontSize:13,
+          fontWeight:600,zIndex:2000,boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>
+          {toast.msg}
         </div>
       )}
     </div>
   );
 }
 
-// ── AKSESSUARLAR ───────────────────────────────────────────────────────────────
 function AksessuarlarPage({ accessories, setAccessories, setSales, accHistory, setAccHistory }) {
   const [modal, setModal] = useState(false);
   const [bulkModal, setBulkModal] = useState(false);
