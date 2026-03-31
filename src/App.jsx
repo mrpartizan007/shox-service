@@ -11472,8 +11472,8 @@ export default function App() {
   const [losses,      setLosses]                         = useDbTable("losses");
   const [debts,       setDebts]                          = useDbTable("debts");
   const [incomes,     setIncomes]                        = useDbTable("incomes");
-  const [partHistory, setPartHistory]                    = useDbTable("part_history");
-  const [accHistory,  setAccHistory]                     = useDbTable("acc_history");
+  const [partHistory, setPartHistory] = useState([]);
+  const [accHistory,  setAccHistory]  = useState([]);
   const [ustaRecords, setUstaRecords]                    = useDbTable("usta_records");
 
   const [mode,          setMode]         = useState(()=>localStorage.getItem("shox_mode")||"ishchi");
