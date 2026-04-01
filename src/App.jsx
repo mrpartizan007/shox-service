@@ -1600,6 +1600,162 @@ function TovarlarPage({ parts, setParts, accessories, setAccessories, setSales, 
 }
 
 
+// ── MODAL: Katalogdan zapchast qo'shish ──────────────────────────────────────
+function ModalZapchast({ editItem, form, setForm, onSave, onClose, SUPA_URL, SUPA_KEY, initialBrand, initialModel, initialType }) {
+  const [mBrand,  setMBrand]  = useState(form.brand  || initialBrand  || "");
+  const [mModel,  setMModel]  = useState(form.model  || initialModel  || "");
+  const [mType,   setMType]   = useState(form.type   || initialType   || "");
+  const [mBrands, setMBrands] = useState([]);
+  const [mModels, setMModels] = useState([]);
+  const [mTypes,  setMTypes]  = useState([]);
+  const [loadingM, setLoadingM] = useState(false);
+  const [loadingT, setLoadingT] = useState(false);
+
+  // Brendlarni yuklash
+  useEffect(()=>{
+    if(!SUPA_URL) return;
+    fetch(`${SUPA_URL}/rest/v1/parts_catalog?select=brand&order=brand.asc&limit=10000`,{
+      headers:{"apikey":SUPA_KEY,"Authorization":`Bearer ${SUPA_KEY}`}
+    }).then(r=>r.json()).then(rows=>{
+      setMBrands([...new Set(rows.map(r=>r.brand).filter(Boolean))].sort());
+    }).catch(()=>{});
+  },[]);
+
+  // Modellarni yuklash (brend tanlanganda)
+  useEffect(()=>{
+    if(!mBrand||!SUPA_URL) { setMModels([]); setMModel(""); setMType(""); return; }
+    setLoadingM(true);
+    fetch(`${SUPA_URL}/rest/v1/parts_catalog?select=model&brand=eq.${encodeURIComponent(mBrand)}&order=model.asc&limit=10000`,{
+      headers:{"apikey":SUPA_KEY,"Authorization":`Bearer ${SUPA_KEY}`}
+    }).then(r=>r.json()).then(rows=>{
+      setMModels([...new Set(rows.map(r=>r.model).filter(Boolean))].sort());
+      setLoadingM(false);
+    }).catch(()=>setLoadingM(false));
+    if(!editItem) { setMModel(""); setMType(""); }
+  },[mBrand]);
+
+  // Turlarni yuklash (model tanlanganda)
+  useEffect(()=>{
+    if(!mModel||!SUPA_URL) { setMTypes([]); setMType(""); return; }
+    setLoadingT(true);
+    fetch(`${SUPA_URL}/rest/v1/parts_catalog?select=type,buy_price,sell_price&model=eq.${encodeURIComponent(mModel)}&order=type.asc&limit=10000`,{
+      headers:{"apikey":SUPA_KEY,"Authorization":`Bearer ${SUPA_KEY}`}
+    }).then(r=>r.json()).then(rows=>{
+      setMTypes(rows||[]);
+      setLoadingT(false);
+    }).catch(()=>setLoadingT(false));
+    if(!editItem) setMType("");
+  },[mModel]);
+
+  // Tur tanlanganda narxlarni avtomatik to'ldirish
+  useEffect(()=>{
+    if(!mType||editItem) return;
+    const found = mTypes.find(t=>t.type===mType);
+    if(found) {
+      setForm(prev=>({
+        ...prev,
+        brand: mBrand,
+        model: mModel,
+        type: mType,
+        name: `${mModel} ${mType}`,
+        buyPrice: found.buy_price||0,
+        sellPrice: found.sell_price||0,
+      }));
+    }
+  },[mType]);
+
+  const sel = {width:"100%",background:T.surface,border:"1px solid "+T.border,
+    borderRadius:8,padding:"8px 12px",color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"};
+  const inp = {...sel};
+  const lbl = {fontSize:11,color:T.muted,marginBottom:4};
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",
+      display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
+      <div style={{background:T.card,borderRadius:16,padding:24,width:380,
+        border:"1px solid "+T.border,maxHeight:"92vh",overflow:"auto"}}>
+        <h3 style={{margin:"0 0 16px",fontSize:15,color:T.text}}>
+          {editItem?"✏️ Tahrirlash":"➕ Yangi zapchast"}
+        </h3>
+
+        {!editItem && (<>
+          {/* Brend */}
+          <div style={{marginBottom:10}}>
+            <div style={lbl}>📱 Brend</div>
+            <select value={mBrand} onChange={e=>{setMBrand(e.target.value);setForm(prev=>({...prev,brand:e.target.value}));}} style={sel}>
+              <option value="">— tanlang</option>
+              {mBrands.map(b=><option key={b} value={b}>{b}</option>)}
+            </select>
+          </div>
+
+          {/* Model */}
+          {mBrand && (
+            <div style={{marginBottom:10}}>
+              <div style={lbl}>📋 Model {loadingM&&"⏳"}</div>
+              <select value={mModel} onChange={e=>{setMModel(e.target.value);setForm(prev=>({...prev,model:e.target.value}));}} style={sel}>
+                <option value="">— tanlang</option>
+                {mModels.map(m=><option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Tur */}
+          {mModel && (
+            <div style={{marginBottom:10}}>
+              <div style={lbl}>🔩 Tur {loadingT&&"⏳"}</div>
+              <select value={mType} onChange={e=>setMType(e.target.value)} style={sel}>
+                <option value="">— tanlang</option>
+                {mTypes.map(t=><option key={t.type} value={t.type}>{t.type}</option>)}
+              </select>
+            </div>
+          )}
+
+          {mType && <div style={{height:1,background:T.border,margin:"12px 0"}}/>}
+        </>)}
+
+        {/* Nomi */}
+        <div style={{marginBottom:10}}>
+          <div style={lbl}>Nomi</div>
+          <input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))}
+            placeholder="Samsung A12 Ekran" style={inp}/>
+        </div>
+
+        {/* Narxlar */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+          <div>
+            <div style={lbl}>Xarid narxi (so'm)</div>
+            <input type="number" value={form.buyPrice} onChange={e=>setForm(p=>({...p,buyPrice:e.target.value}))}
+              placeholder="120000" style={inp}/>
+          </div>
+          <div>
+            <div style={lbl}>Sotuv narxi (so'm)</div>
+            <input type="number" value={form.sellPrice} onChange={e=>setForm(p=>({...p,sellPrice:e.target.value}))}
+              placeholder="220000" style={inp}/>
+          </div>
+        </div>
+
+        {/* Soni */}
+        <div style={{marginBottom:16}}>
+          <div style={lbl}>Soni</div>
+          <input type="number" value={form.count} onChange={e=>setForm(p=>({...p,count:e.target.value}))}
+            placeholder="0" style={inp}/>
+        </div>
+
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onClose}
+            style={{flex:1,padding:"10px",borderRadius:8,background:T.surface,
+              border:"1px solid "+T.border,color:T.muted,cursor:"pointer",fontSize:13}}>Bekor</button>
+          <button onClick={onSave}
+            style={{flex:1,padding:"10px",borderRadius:8,background:T.brand,
+              border:"none",color:"#fff",fontWeight:600,cursor:"pointer",fontSize:13}}>
+            {editItem?"Saqlash":"Qo'shish"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ZapchastlarPage({ parts, setParts, partHistory, setPartHistory, setSales }) {
   const SUPA_URL = import.meta.env.VITE_SUPABASE_URL || "";
   const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
@@ -1944,42 +2100,14 @@ function ZapchastlarPage({ parts, setParts, partHistory, setPartHistory, setSale
 
       {/* Add/Edit Modal */}
       {modal && (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",
-          display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
-          <div style={{background:T.card,borderRadius:16,padding:24,width:360,
-            border:"1px solid "+T.border,maxHeight:"90vh",overflow:"auto"}}>
-            <h3 style={{margin:"0 0 16px",fontSize:15,color:T.text}}>
-              {editItem?"✏️ Tahrirlash":"➕ Yangi zapchast"}
-            </h3>
-            {[
-              {label:"Nomi",key:"name",placeholder:"Samsung A12 Ekran"},
-              {label:"Model",key:"model",placeholder:"Samsung Galaxy A12"},
-              {label:"Tur",key:"type",placeholder:"Ekran (AMOLED Original)"},
-              {label:"Brend",key:"brand",placeholder:"Samsung"},
-              {label:"Xarid narxi",key:"buyPrice",type:"number",placeholder:"120000"},
-              {label:"Sotuv narxi",key:"sellPrice",type:"number",placeholder:"220000"},
-              {label:"Soni",key:"count",type:"number",placeholder:"0"},
-            ].map(f=>(
-              <div key={f.key} style={{marginBottom:10}}>
-                <div style={{fontSize:11,color:T.muted,marginBottom:4}}>{f.label}</div>
-                <input type={f.type||"text"} value={form[f.key]}
-                  onChange={e=>setForm(prev=>({...prev,[f.key]:e.target.value}))}
-                  placeholder={f.placeholder}
-                  style={{width:"100%",background:T.surface,border:"1px solid "+T.border,
-                    borderRadius:8,padding:"8px 12px",color:T.text,fontSize:13,
-                    outline:"none",boxSizing:"border-box"}}/>
-              </div>
-            ))}
-            <div style={{display:"flex",gap:10,marginTop:16}}>
-              <button onClick={()=>setModal(false)}
-                style={{flex:1,padding:"10px",borderRadius:8,background:T.surface,
-                  border:"1px solid "+T.border,color:T.muted,cursor:"pointer"}}>Bekor</button>
-              <button onClick={saveItem}
-                style={{flex:1,padding:"10px",borderRadius:8,background:T.brand,
-                  border:"none",color:"#fff",fontWeight:600,cursor:"pointer"}}>Saqlash</button>
-            </div>
-          </div>
-        </div>
+        <ModalZapchast
+          editItem={editItem}
+          form={form} setForm={setForm}
+          onSave={saveItem}
+          onClose={()=>setModal(false)}
+          SUPA_URL={SUPA_URL} SUPA_KEY={SUPA_KEY}
+          initialBrand={selBrand} initialModel={selModel} initialType={selType}
+        />
       )}
 
       {/* Delete confirm */}
