@@ -6,5 +6,10 @@ export default defineConfig({
   build: {
     outDir: "dist",
     chunkSizeWarningLimit: 3000,
+    rollupOptions: {
+      output: {
+        entryFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
+      }
+    }
   },
 });
