@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 
@@ -1603,9 +1602,9 @@ function TovarlarPage({ parts, setParts, accessories, setAccessories, setSales, 
 
 // ── MODAL: Katalogdan zapchast qo'shish ──────────────────────────────────────
 function ModalZapchast({ editItem, form, setForm, onSave, onClose, SUPA_URL, SUPA_KEY, initialBrand, initialModel, initialType }) {
-  const [mBrand,  setMBrand]  = useState(form.brand  || initialBrand  || "");
-  const [mModel,  setMModel]  = useState(form.model  || initialModel  || "");
-  const [mType,   setMType]   = useState(form.type   || initialType   || "");
+  const [mBrand,  setMBrand]  = useState("");
+  const [mModel,  setMModel]  = useState("");
+  const [mType,   setMType]   = useState("");
   const [mBrands, setMBrands] = useState([]);
   const [mModels, setMModels] = useState([]);
   const [mTypes,  setMTypes]  = useState([]);
@@ -11754,5 +11753,3 @@ export default function App() {
 }
 
 // v2.1 - Catalog based ZapchastlarPage
-// build: 1
-
